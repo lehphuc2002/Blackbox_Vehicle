@@ -14,7 +14,7 @@ import math
 import sys 
 from mpu6050lib import mpu6050
 
-#global R_rotate 
+#set up Kalman filter
 kalman_filter_1 = KalmanFilter1(process_variance=1e-5, measurement_variance=1e-2)
 kalman_filter_2 = KalmanFilter2(process_variance=1e-5, measurement_variance=1e-2)
 kalman_filter_3 = KalmanFilter3(process_variance=1e-5, measurement_variance=1e-2)
@@ -141,9 +141,6 @@ if __name__ == "__main__":
     Rz=np.eye(3)
     print('recording data')
     accel_offests=np.zeros(3)
-    # gyro_data = np.zeros(3)
-    # acc_data = np.zeros(3)
-    #mag_data = np.zeros(3)
     t = 0
     roll = 0
     pitch = 0
@@ -160,17 +157,14 @@ if __name__ == "__main__":
     
     #Calib ofsets
     gyro_offsets = gyro_calib(500)
-    #mag_offset, mag_gain = mag_calib(500)
     accel_offests = accel_cal(200)
-    #ax, ay, az, wx, wy, wz = mpu6050_conv()
+  
     
     ax, ay, az = get_accel()
     ax =ax-accel_offests[0]
     ay =ay-accel_offests[1]  
     az =az-accel_offests[2]
-    
-    
-    
+   
     # print("ACCX" + " " + str(ax))
     # print()
     # print("AccY" + " " + str(ay))
@@ -182,9 +176,8 @@ if __name__ == "__main__":
     with open('Rotate_matrix.txt', 'a', encoding='utf-8') as file:
         file.writelines("\n" + str(R_rotate))
     acc_0  = [ax[0],ay[0],az[0]]
-    #acc_0= [ax, ay, az]
-    #acc = [ax[0],ay[0],az[0]]
-    time.sleep(3)
+
+    time.sleep(1)
     while 1:
         # if (time.time() - start_time) > time_interval:
             dt = time.time() - start_time
@@ -196,58 +189,12 @@ if __name__ == "__main__":
             # except:
                 # continue
 
-            # wx -= gyro_offsets[0]
-            # wy -= gyro_offsets[1]
-            # wz -= gyro_offsets[2]
-
             ax -=accel_offests[0]
             ay -=accel_offests[1]
             az -=accel_offests[2]
             
             acc= [ax[0], ay[0], az[0]]
-            #acc= [ax, ay, az]
-            # mx = (mx - mag_offset[0]) * mag_gain[0]
-            # my = (my - mag_offset[1]) * mag_gain[1]
-            # mz = (mz - mag_offset[2]) * mag_gain[2]
 
-            #gyro_data = np.array([wx, wy, wz])
-            #acc_data = np.array([ax, ay, az])
-            #mag_data = np.array([mx, my, mz])
-
-            
-
-            
-            # print('{}'.format('-' * 30))
-            # print('accel [m/s^2]:   x = {0:2.2f},   y = {1:2.2f},   z = {2:2.2f} '.format(acc_data[0], acc_data[1], acc_data[2]))
-            # print('gyro [gps]:  x = {0:2.2f},   y = {1:2.2f},   z = {2:2.2f}'.format(gyro_data[0], gyro_data[1], gyro_data[2]))
-            # #print('mag [mT]:    x = {0:2.2f},   y = {1:2.2f},   z = {2:2.2f}'.format(mag_data[0], mag_data[1], mag_data[2]))
-            # #print('Euler angles2:  roll = {0:2.2f},   pitch = {1:2.2f},   yaw = {2:2.2f} '.format(np.degrees(rol2), np.degrees(pitc2), np.degrees(yaw_comp)))
-            # print('{}'.format('-' * 30))
-            #df.to_excel('euler_angles_data.xlsx', index=False)
-            
-            # print("AccX" + " " + str(ax[0])) #[0]
-            # print()
-            # print("AccY" + " " + str(ay[0]))#[0]
-            # print()
-            # print("AccZ" + " " + str(az[0])) #[0]
-            # print()
-            # for index, row in enumerate(accel_offests):
-                # print(f"ofset matrix {index + 1}:  {row}")
-                # print()
-            # print("gyroX" + " " + str(wx))
-            # print()
-            # print("gyroY" + " " + str(wy))
-            # print()
-            # print("GyroZ" + " " + str(wz))
-            # print()
-            # print("AccX" + " " + str(acc_0[0]))
-            # print()
-            # print("AccY" + " " + str(acc_0[1]))
-            # print()
-            # print("AccZ" + " " + str(acc_0[2]))
-            # print()
-            # print("dt" + str(dt))
-            # print()
             wx, wy, wz = gyro_filter()
             
             wx -= gyro_offsets[0]
@@ -280,20 +227,7 @@ if __name__ == "__main__":
             Ry = round_matrix(Ry, decimal = 5)
             Rz=[[math.cos(yaw), math.sin(yaw), 0], [-math.sin(yaw), math.cos(yaw), 0], [0, 0, 1]]
             Rz = round_matrix(Rz, decimal = 5)
-            
-            # for index, row in enumerate(Rx):
-                # print(f"Rx {index + 1}:  {row}")
-                # print()
-            # for index, row in enumerate(Ry):
-                # print(f"Ry {index + 1}:  {row}")
-                # print()
-            # for index, row in enumerate(Rz):
-                # print(f"Rz {index + 1}:  {row}")
-                # print()
-            # for index, row in enumerate(R_rotate):
-                # print(f"row Rowtate before {index + 1}:  {row}")
-                # print()
-                
+                        
             R_rotate = mul_matrix(Rz, R_rotate)
             R_rotate = mul_matrix(Ry, R_rotate)
             R_rotate = mul_matrix(Rx, R_rotate)
@@ -325,8 +259,7 @@ if __name__ == "__main__":
             for index, row in enumerate(acc_global):
                 print(f"a tinh tien {index + 1}:  {row}")
                 print()
-
-            
+      
             with open('Acc.txt', 'a', encoding='utf-8') as file:
                 file.writelines("\n" + str(acc_global))
 
