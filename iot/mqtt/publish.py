@@ -5,8 +5,10 @@ import paho.mqtt.client as paho
 from datetime import datetime
 
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
-broker = '192.168.1.9'
+broker = '192.168.31.222'
 port = 1883
+longitude_GPS = 10.8805691
+latitude_GPS = 106.8002365
 
 def on_publish(client, userdata, result):
 	print("Data published to ThingsBoard")
@@ -23,6 +25,12 @@ def on_log(client, userdata, level, buf):
 def get_temperature():
 	return rnd.uniform(-50, 50)
 
+def get_longitude_GPS():
+	return longitude_GPS
+	
+def get_latitude_GPS():
+	return latitude_GPS
+
 def get_humidity():
 	return rnd.uniform(0, 100)
 
@@ -36,7 +44,9 @@ def get_payload():
 		'Temperature': get_temperature(),
 		'Humidity': get_humidity(),
 		'Wind direction': get_wind_direction(),
-		'Timestamp': timestamp
+		'Timestamp': timestamp,
+		'Longitude': longitude_GPS,
+		'Latitude': latitude_GPS
 	}
 	return json.dumps(payload)
 
@@ -47,7 +57,7 @@ client1.on_log = on_log
 client1.username_pw_set(ACCESS_TOKEN1)
 
 try:
-	client1.connect(broker, port, keepalive=60)
+	client1.connect(broker, port, keepalive=5)
 except Exception as e:
 	print(f"Could not connect to MQTT Broker. Error: {e}")
 	exit()
