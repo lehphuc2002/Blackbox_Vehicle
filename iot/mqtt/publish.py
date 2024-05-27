@@ -5,10 +5,10 @@ import paho.mqtt.client as paho
 from datetime import datetime
 
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
-broker = '0.tcp.ap.ngrok.io'
-port = 15818
-#broker = '192.168.1.4'
-#port = 1883
+#broker = '0.tcp.ap.ngrok.io'
+#port = 15818
+broker = '192.168.1.4'
+port = 1883
 longitude_GPS = 106.65829755
 latitude_GPS = 10.771835167
 
@@ -52,40 +52,46 @@ def get_payload():
 	}
 	return json.dumps(payload)
 
-client1 = paho.Client()
-client1.on_publish = on_publish
-client1.on_connect = on_connect
-client1.on_log = on_log
-client1.username_pw_set(ACCESS_TOKEN1)
 
-try:
-	client1.connect(broker, port, keepalive=60)
-except Exception as e:
-	print(f"Could not connect to MQTT Broker. Error: {e}")
-	exit()
+def init_client():
+	client = paho.Client()
+	client.on_publish = on_publish
+	client.on_connect = on_connect
+	client.on_log = on_log
+	client.username_pw_set(ACCESS_TOKEN1)
+	try:
+		client.connect(broker, port, keepalive=60)
+	except Exception as e:
+		print(f"Could not connect to MQTT Broker. Error: {e}")
+		exit()
 
-client1.loop_start()
+	client.loop_start()
+	return client
+def send_data(client):
+	global longitude_GPS, latitude_GPS
+	try:
+		while not client.is_connected():
+			time.sleep(0.1)
 
-try:
-	while not client1.is_connected():
-		time.sleep(0.1)
+		while True:
+			latitude_GPS += rnd.uniform(-0.0001, 0.0001)
+			longitude_GPS += rnd.uniform(-0.0001, 0.0001)
+			payload1 = get_payload()
+			ret = client.publish("v1/devices/me/telemetry", payload1)
+			if ret.rc == paho.MQTT_ERR_SUCCESS:
+				print("Publish success")
+				print("Here is the latest telemetry")
+				print(payload1)
+			else:
+				print(f"Publish failed with error code: {ret.rc}")
+			time.sleep(5)
+	except KeyboardInterrupt:
+		print("Disconnecting from MQTT Broker...")
+		client.disconnect()
+		client.loop_stop()
+		print("Disconnected")
 
-	while True:
-		latitude_GPS += rnd.uniform(-0.0001, 0.0001)
-		longitude_GPS += rnd.uniform(-0.0001, 0.0001)
-		payload1 = get_payload()
-		ret = client1.publish("v1/devices/me/telemetry", payload1)
-		if ret.rc == paho.MQTT_ERR_SUCCESS:
-			print("Publish success")
-			print("Here is the latest telemetry")
-			print(payload1)
-		else:
-			print(f"Publish failed with error code: {ret.rc}")
-		time.sleep(5)
-except KeyboardInterrupt:
-	print("Disconnecting from MQTT Broker...")
-	client1.disconnect()
-	client1.loop_stop()
-	print("Disconnected")
-
+if __name__ == "__main__":
+	client1 = init_client()
+	send_data(client1)
 
