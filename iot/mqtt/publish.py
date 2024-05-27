@@ -8,7 +8,11 @@ ACCESS_TOKEN1 = 'CAR1_TOKEN'
 broker = '0.tcp.ap.ngrok.io'
 port = 11728
 #broker = '192.168.1.4'
+<<<<<<< HEAD
 #port = 1883
+=======
+#port = 11728
+>>>>>>> a0041ae7aa2fabc7246e4cdd2de45dfcbf8dee35
 longitude_GPS = 106.65829755
 latitude_GPS = 10.771835167
 
