@@ -53,9 +53,10 @@ def main():
 			time.sleep(5)
 	except KeyboardInterrupt:
 		print("Disconnecting from MQTT Broker...")
-		client.disconnect()
-		client.loop_stop()
+		client1.disconnect()
+		client1.loop_stop()
 		print("Disconnected")
+		gps_EM06.destroy()
 	
 	return 0
 
