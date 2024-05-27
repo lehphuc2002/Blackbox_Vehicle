@@ -5,10 +5,10 @@ import paho.mqtt.client as paho
 from datetime import datetime
 
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
-#broker = '0.tcp.ap.ngrok.io'
-#port = 15818
-broker = '192.168.1.4'
-port = 1883
+broker = '0.tcp.ap.ngrok.io'
+port = 11728
+#broker = '192.168.1.4'
+#port = 1883
 longitude_GPS = 106.65829755
 latitude_GPS = 10.771835167
 

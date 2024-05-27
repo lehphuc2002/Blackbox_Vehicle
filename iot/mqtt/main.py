@@ -43,7 +43,7 @@ def main():
 			if longitude_GPS is not None and latitude_GPS is not None:
 				print(f"Longitude: {longitude_GPS}, Latitude: {latitude_GPS}")
 			payload1 = get_payload()
-			ret = client.publish("v1/devices/me/telemetry", payload1)
+			ret = client1.publish("v1/devices/me/telemetry", payload1)
 			if ret.rc == paho.MQTT_ERR_SUCCESS:
 				print("Publish success")
 				print("Here is the latest telemetry")
