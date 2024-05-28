@@ -5,10 +5,11 @@ import paho.mqtt.client as paho
 from datetime import datetime
 
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
-broker = '0.tcp.ap.ngrok.io'
-port = 11728
-#broker = '192.168.1.4'
+#broker = '0.tcp.ap.ngrok.io'
 #port = 11728
+broker = '192.168.31.222'
+port = 1883
+
 longitude_GPS = 106.65829755
 latitude_GPS = 10.771835167
 
@@ -24,28 +25,34 @@ def on_connect(client, userdata, flags, rc):
 def on_log(client, userdata, level, buf):
 	print("log: ", buf)
 
-def get_temperature():
-	return round(rnd.uniform(-50, 50), 2)
+def get_RFID_name():
+	return "Le Huu Phuc"
 
-def get_longitude_GPS():
-	return longitude_GPS
+def get_RFID_phone_number():
+	return rnd.choice(["+84776544745", "+84919555999"])
+
+def get_Acclerometion_X():
+	return round(rnd.randrange(-150, 200),3)
 	
-def get_latitude_GPS():
-	return latitude_GPS
+def get_Acclerometion_Y():
+	return round(rnd.randrange(-100, 150),3)
+	
+def get_Acclerometion_Z():
+	return round(rnd.randrange(-50, 100),3)
 
-def get_humidity():
-	return round(rnd.uniform(0, 100),2)
-
-def get_wind_direction():
-	return round(rnd.randrange(0, 360),2)
+def get_speed():
+	return round(rnd.randrange(0, 300),3)
 
 def get_payload():
 	now = datetime.now()
 	timestamp = now.strftime("%H:%M:%S:%f")[:-3]  # Format the timestamp as HH:MM:SS:millisecond
 	payload = {
-		'Temperature': get_temperature(),
-		'Humidity': get_humidity(),
-		'Wind direction': get_wind_direction(),
+		'Name': get_RFID_name(),
+		'Phone number': get_RFID_phone_number(),
+		'Acclerometion X': get_Acclerometion_X(),
+		'Acclerometion Y': get_Acclerometion_Y(),
+		'Acclerometion Z': get_Acclerometion_Z(),
+		'Speed': get_speed(),
 		'Timestamp': timestamp,
 		'Longitude': longitude_GPS,
 		'Latitude': latitude_GPS
@@ -84,7 +91,7 @@ def send_data(client):
 				print(payload1)
 			else:
 				print(f"Publish failed with error code: {ret.rc}")
-			time.sleep(5)
+			time.sleep(3)
 	except KeyboardInterrupt:
 		print("Disconnecting from MQTT Broker...")
 		client.disconnect()
