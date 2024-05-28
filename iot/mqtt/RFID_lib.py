@@ -19,7 +19,7 @@ class RFIDReader:
 
 def create_user_library():
     return {
-        0x91E468C: {'name': 'Le Huu Phuc', 'phone': '123-456-7890'},
+        0x91E468C: {'name': 'John Doe', 'phone': '123-456-7890'},
         0x81E468C: {'name': 'Jane Smith', 'phone': '987-654-3210'},
 
     }

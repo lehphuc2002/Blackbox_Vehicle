@@ -56,13 +56,13 @@ class BNO055Sensor:
         if accel_z > 32767:
             accel_z -= 65536
 
-        # filtered_x = self.kalman_filter_1.update(accel_x)
-        # filtered_y = self.kalman_filter_2.update(accel_y)
-        # filtered_z = self.kalman_filter_3.update(accel_z)
+        filtered_x = self.kalman_filter_1.update(accel_x)
+        filtered_y = self.kalman_filter_2.update(accel_y)
+        filtered_z = self.kalman_filter_3.update(accel_z)
         
-        filtered_x = accel_x
-        filtered_y = accel_y
-        filtered_z = accel_z
+        # filtered_x = accel_x
+        # filtered_y = accel_y
+        # filtered_z = accel_z
         
         
         mag_x = (mag_data[1] << 8) | mag_data[0]
