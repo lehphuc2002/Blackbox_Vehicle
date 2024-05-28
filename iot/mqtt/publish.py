@@ -6,10 +6,12 @@ from datetime import datetime
 
 
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
+
 broker = '0.tcp.ap.ngrok.io'
 port = 11340
 #broker = '192.168.31.222'
 #port = 1883
+
 
 longitude_GPS = 106.65829755
 latitude_GPS = 10.771835167
