@@ -7,7 +7,7 @@ from datetime import datetime
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
 #broker = '0.tcp.ap.ngrok.io'
 #port = 11728
-broker = '192.168.1.4'
+broker = '192.168.31.222'
 port = 1883
 
 longitude_GPS = 106.65829755
