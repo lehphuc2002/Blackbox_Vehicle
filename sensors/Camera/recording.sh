@@ -1,26 +1,23 @@
-#!/bin/sh
-#
-# Launch of code added to /etc/rc.local on the line before "exit 0" :
-# sh /home/pi/video/recording.sh
+#!/bin/bash
 
-#go to working directory
-cd /home/pi/video/
-#3Gb free space limit
-limit=3000000
+FREE_SPACE=$(df / | grep / | awk '{print $4}')
 
-#check the size from disk partition /dev/root
-size=$(df -k /dev/root | tail -1 | awk '{print $4}')
 
-#remove oldest files according to the free space limit
-while [ $size -le $limit ]
-do
-   #remove .h264 files starting from the oldest file
-   ls -1tr |grep .h264 | head -n -1 | xargs -d '\n' rm -f
-   #check free space again
-   size=$(df -k /dev/root | tail -1 | awk '{print $4}')
-done
+LIMIT=$((1 * 1024 * 1024))
 
-date=$(date +"%Y%m%d%H%M")
 
-#start capturing video and exit the script
-raspivid -o /home/pi/video/video_$date.h264 -n -w 1280 -h 720 -b 6000000 -t 9000000 &
+if [ "$FREE_SPACE" -le "$LIMIT" ]; then
+    echo "Not enough free space. Please free up some space."
+    exit 1
+fi
+
+
+if ! command -v raspivid &> /dev/null; then
+    echo "raspivid could not be found, please install it."
+    exit 1
+fi
+
+raspivid -o /home/pi/DO_AN_git/Blackbox_Vehicle/sensors/Camera/video.h264 &
+
+
+echo $! > /home/pi/DO_AN_git/Blackbox_Vehicle/sensors/Camera/recording.pid

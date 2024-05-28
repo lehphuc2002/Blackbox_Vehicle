@@ -4,11 +4,14 @@ import json
 import paho.mqtt.client as paho
 from datetime import datetime
 
+
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
-#broker = '0.tcp.ap.ngrok.io'
-#port = 11728
-broker = '192.168.31.222'
-port = 1883
+
+broker = '0.tcp.ap.ngrok.io'
+port = 11340
+#broker = '192.168.31.222'
+#port = 1883
+
 
 longitude_GPS = 106.65829755
 latitude_GPS = 10.771835167
@@ -43,19 +46,20 @@ def get_Acclerometion_Z():
 def get_speed():
 	return round(rnd.randrange(0, 300),3)
 
-def get_payload():
+def get_payload(ax,ay,az, vel, name_user, phone_user):
 	now = datetime.now()
 	timestamp = now.strftime("%H:%M:%S:%f")[:-3]  # Format the timestamp as HH:MM:SS:millisecond
 	payload = {
-		'Name': get_RFID_name(),
-		'Phone number': get_RFID_phone_number(),
-		'Acclerometion X': get_Acclerometion_X(),
-		'Acclerometion Y': get_Acclerometion_Y(),
-		'Acclerometion Z': get_Acclerometion_Z(),
-		'Speed': get_speed(),
+		'Name': name_user,
+		'Phone number': phone_user,
+		'Acclerometion X': ax,
+		'Acclerometion Y': ay,
+		'Acclerometion Z': az,
+		'Speed': vel,
 		'Timestamp': timestamp,
 		'Longitude': longitude_GPS,
-		'Latitude': latitude_GPS
+		'Latitude': latitude_GPS,
+		'license plates': "74D1-145.15" 
 	}
 	return json.dumps(payload)
 
