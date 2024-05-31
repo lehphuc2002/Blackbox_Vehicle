@@ -4,12 +4,16 @@ import json
 import paho.mqtt.client as paho
 from datetime import datetime
 
-
+global ACCESS_TOKEN1 
+global ACCESS_TOKEN2
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
+ACCESS_TOKEN2 = 'CAR2_TOKEN'
 broker = '0.tcp.ap.ngrok.io'
-port = 11340
+port = 15487
 #broker = '192.168.31.222'
 #port = 1883
+
+
 
 longitude_GPS = 106.65829755
 latitude_GPS = 10.771835167
@@ -44,7 +48,10 @@ def get_Acclerometion_Z():
 def get_speed():
 	return round(rnd.randrange(0, 300),3)
 
-def get_payload(ax,ay,az, vel, name_user, phone_user):
+def get_payload(ax,ay,az, vel, name_user, phone_user,longitude_GPS, latitude_GPS ):
+	#global longitude_GPS, latitude_GPS		
+	#latitude_GPS += rnd.uniform(-0.0001, 0.0001)
+	#longitude_GPS += rnd.uniform(-0.0001, 0.0001)
 	now = datetime.now()
 	timestamp = now.strftime("%H:%M:%S:%f")[:-3]  # Format the timestamp as HH:MM:SS:millisecond
 	payload = {
@@ -62,12 +69,12 @@ def get_payload(ax,ay,az, vel, name_user, phone_user):
 	return json.dumps(payload)
 
 
-def init_client():
+def init_client(token):
 	client = paho.Client()
 	client.on_publish = on_publish
 	client.on_connect = on_connect
 	client.on_log = on_log
-	client.username_pw_set(ACCESS_TOKEN1)
+	client.username_pw_set(token)
 	try:
 		client.connect(broker, port, keepalive=60)
 	except Exception as e:

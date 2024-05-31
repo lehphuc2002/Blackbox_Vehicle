@@ -21,6 +21,19 @@ class GPSModule:
         self.ser2.close()
         print(f"{self.command_port} Close!!!")
 
+    def haversine(self, lon1, lat1, lon2, lat2):
+        
+        if None in (lon1, lat1, lon2, lat2):
+            raise ValueError("Gia tri kinh do vi do la none")
+        
+        lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        r = 6371 
+        return c * r
+
     def open_serial(self):
         self.ser1 = serial.Serial(self.gps_port, self.baud_rate)
         print(f"{self.gps_port} Open!!!")
