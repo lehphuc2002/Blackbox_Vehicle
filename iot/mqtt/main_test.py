@@ -21,7 +21,11 @@
 #  MA 02110-1301, USA.
 #  
 #  
+<<<<<<< HEAD
 from publish_test import init_client, get_payload, ACCESS_TOKEN1, ACCESS_TOKEN2, send_data_test 
+=======
+from publish_test import init_client, get_payload, ACCESS_TOKEN1, ACCESS_TOKEN2, send_data_test
+>>>>>>> 4c58b854163255145c7e923384777f3e9cce235b
 import paho.mqtt.client as paho
 from BNO055_lib import BNO055Sensor
 from GPS_lib import GPSModule
