@@ -68,7 +68,8 @@ def main():
 			vy = vy + round(ay,1)*dt
 			vz = vz + round(az,1)*dt
 			
-			v = math.sqrt(vx*vx +vy*vy +vz*vz)*3.6
+			v_1 = math.sqrt(vx*vx +vy*vy +vz*vz)*3.6
+			v = v_1
 			#  Read GPS parameters
 			longitude_GPS, latitude_GPS = gps_EM06.read_coordinates()
 			if longitude_GPS is not None and latitude_GPS is not None and longitude_GPS_t is not None and latitude_GPS_t is not None :
