@@ -145,16 +145,16 @@ def send_data_test(self, client, accel_x, accel_y, accel_z, vel, name_user, phon
 	try:
 
 			current_time = time.time()
-			status = 'Normal'
+			self.status = 'Normal'
 
 			if vel > 90:
-				status = 'Over Speed'
+				self.status = 'Over Speed'
 
-			payload1 = get_payload(accel_x, accel_y, accel_z, vel, name_user, phone_user,longitude_GPS, latitude_GPS, status)
+			payload1 = get_payload(accel_x, accel_y, accel_z, vel, name_user, phone_user,longitude_GPS, latitude_GPS, self.status)
 			
 			# Gui ngay khi co thay doi lon ve gia toc
 			if accel_x > ACC_X_THRESHOLD or accel_y > ACC_Y_THRESHOLD or accel_z > ACC_Z_THRESHOLD:
-				status = 'Warning Accident'
+				self.status = 'Warning Accident'
 			#	payload1 = get_payload_test(ax, ay, az, speed, status)
 				ret = client.publish("v1/devices/me/telemetry", payload1)
 				if ret.rc == paho.MQTT_ERR_SUCCESS:
