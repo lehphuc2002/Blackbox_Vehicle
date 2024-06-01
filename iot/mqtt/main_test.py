@@ -21,7 +21,7 @@
 #  MA 02110-1301, USA.
 #  
 #  
-from publish import init_client, get_payload, ACCESS_TOKEN1, ACCESS_TOKEN2
+from publish_test import init_client, get_payload, ACCESS_TOKEN1, ACCESS_TOKEN2
 import paho.mqtt.client as paho
 from BNO055_lib import BNO055Sensor
 from GPS_lib import GPSModule
@@ -49,6 +49,9 @@ def main():
 	acc_offset = mpu_BNO055.accel_calib()
 	longitude_GPS_t, latitude_GPS_t = gps_EM06.read_coordinates()
 	try:
+		while not client.is_connected():
+			time.sleep(0.1)
+			
 		while True:
 			#  Read acceleration
 			ax, ay, az = mpu_BNO055.read_sensor_data()
@@ -73,8 +76,7 @@ def main():
 				d = gps_EM06.haversine(longitude_GPS_t, latitude_GPS_t, longitude_GPS, latitude_GPS)
 				v_2 = d/dt
 				v = 0.999*v_2 + 0.001*v_1
-			
-			
+				
 			longitude_GPS_t, latitude_GPS_t = longitude_GPS, latitude_GPS
 			print("velocity", v)
 			uid = reader.read_id()
@@ -86,8 +88,7 @@ def main():
 					print(f'UID {uid:X} not found in user library.')
 
 			
-			payload1 = get_payload(ax, ay, az, v, user_info["name"], user_info["phone"],longitude_GPS , latitude_GPS)
-			ret = client1.publish("v1/devices/me/telemetry", payload1)
+			send_data_test(client1 ,ax, ay, az, v, user_info["name"], user_info["phone"],longitude_GPS , latitude_GPS)
 			
 			if ret.rc == paho.MQTT_ERR_SUCCESS:
 				print("Publish success")
@@ -95,7 +96,7 @@ def main():
 				print(payload1)
 			else:
 				print(f"Publish failed with error code: {ret.rc}")
-			time.sleep(1)
+			time.sleep(0.1)
 	except KeyboardInterrupt:
 		print("Disconnecting from MQTT Broker...")
 		client1.disconnect()
