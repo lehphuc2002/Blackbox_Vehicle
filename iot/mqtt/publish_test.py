@@ -3,19 +3,21 @@ import time
 import json
 import paho.mqtt.client as paho
 from datetime import datetime
+import math
 
 ACCESS_TOKEN1 = 'CAR1_TOKEN'   #mercedes
 ACCESS_TOKEN2 = 'CAR2_TOKEN'   #toyota
+ACCESS_TOKEN3 = 'CAR3_TOKEN' 
 ACC_X_THRESHOLD = 15
 ACC_Y_THRESHOLD = 7
 ACC_Z_THRESHOLD = 4
 interval = 3 
 status = 'Normal'
 type_car = 'Mercedes'
-# broker = '0.tcp.ap.ngrok.io'
-# port = 11728
-broker = '192.168.1.4'
-port = 1883
+broker = '0.tcp.ap.ngrok.io'
+port = 12612
+#broker = '192.168.1.4'
+#port = 1883
 
 # longitude_GPS = 106.65829755
 # latitude_GPS = 10.771835167
@@ -72,7 +74,17 @@ def get_payload_test(ax, ay, az, speed, status):
 	}
 	return json.dumps(payload)
 
-def get_payload(ax,ay,az, vel, name_user, phone_user,longitude_GPS, latitude_GPS, status ):
+def haversine(lon1, lat1, lon2, lat2):
+        
+    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    r = 6371 
+    return c * r
+
+def get_payload( ax,ay,az, vel, name_user, phone_user,longitude_GPS, latitude_GPS, statu):
 	#global longitude_GPS, latitude_GPS		
 	#latitude_GPS += rnd.uniform(-0.0001, 0.0001)
 	#longitude_GPS += rnd.uniform(-0.0001, 0.0001)
@@ -88,14 +100,14 @@ def get_payload(ax,ay,az, vel, name_user, phone_user,longitude_GPS, latitude_GPS
 		'Timestamp': timestamp,
 		'Longitude': longitude_GPS,
 		'Latitude': latitude_GPS,
-		'license plates': "74D1-145.15" ,
-		'status': status,
+		'license plates': license_plates ,
+		'status': statu,
 		'Company': type_car
 	}
 	return json.dumps(payload)
 
 def init_client(token):
-	global type_car 
+	global type_car, license_plates
 	client = paho.Client()
 	client.on_publish = on_publish
 	client.on_connect = on_connect
@@ -103,8 +115,13 @@ def init_client(token):
 	client.username_pw_set(token)
 	if token == 'CAR1_TOKEN':
 		type_car = 'Mercedes'
+		license_plates = "59D6666"
 	elif token == 'CAR2_TOKEN':
 		type_car = 'Toyota'
+		license_plates = "74D1-14515"
+	elif token == 'CAR3_TOKEN':
+		type_car = 'Tesla'
+		license_plates = "60D-12345"
 	try:
 		client.connect(broker, port, keepalive=60)
 	except Exception as e:
@@ -143,7 +160,11 @@ def send_data(client):
 def send_data_test(self, client, accel_x, accel_y, accel_z, vel, name_user, phone_user,longitude_GPS, latitude_GPS ):
 	last_send_time = time.time()
 	try:
-
+		while not client.is_connected():
+			time.sleep(0.1)
+			
+		while True:
+			
 			current_time = time.time()
 			self.status = 'Normal'
 
@@ -173,7 +194,7 @@ def send_data_test(self, client, accel_x, accel_y, accel_z, vel, name_user, phon
 				else:
 					print(f"Regular data failed with error code: {ret.rc}")
 				last_send_time = current_time
-			
+			time.sleep(0.1)
 	except KeyboardInterrupt:
 		print("Disconnecting from MQTT Broker...")
 		client.disconnect()

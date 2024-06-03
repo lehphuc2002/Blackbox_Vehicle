@@ -7,21 +7,16 @@ from datetime import datetime
 global ACCESS_TOKEN1 
 global ACCESS_TOKEN2
 ACCESS_TOKEN1 = 'CAR1_TOKEN'
-<<<<<<< HEAD
-ACCESS_TOKEN2 = 'CAR2_TOKEN'
-=======
 
->>>>>>> dc40b3549992249f2505562e749f3723949a5e48
+ACCESS_TOKEN2 = 'CAR2_TOKEN'
+
 broker = '0.tcp.ap.ngrok.io'
-port = 15487
+port = 19224
 #broker = '192.168.31.222'
 #port = 1883
 
 
-<<<<<<< HEAD
 
-=======
->>>>>>> dc40b3549992249f2505562e749f3723949a5e48
 longitude_GPS = 106.65829755
 latitude_GPS = 10.771835167
 

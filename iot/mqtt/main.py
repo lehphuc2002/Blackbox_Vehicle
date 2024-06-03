@@ -35,8 +35,7 @@ def main():
 	#  MPU, GPS, client init
 	mpu_BNO055 = BNO055Sensor()
 	gps_EM06 = GPSModule()
-	client1 = init_client(ACCESS_TOKEN1)
-	
+	client1 = init_client(ACCESS_TOKEN2)
 	user_library = create_user_library()
 	reader = RFIDReader(user_library)
 	user_info = dict({'name': 'Chua Quet The', 'phone': 'None'})
@@ -49,6 +48,7 @@ def main():
 	acc_offset = mpu_BNO055.accel_calib()
 	longitude_GPS_t, latitude_GPS_t = gps_EM06.read_coordinates()
 	try:
+		
 		while True:
 			#  Read acceleration
 			ax, ay, az = mpu_BNO055.read_sensor_data()

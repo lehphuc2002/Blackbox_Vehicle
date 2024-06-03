@@ -1,52 +1,58 @@
 import serial
 import time
-import math
+import threading
 
-class GPSModule:
-
-    def __init__(self, gps_port="/dev/ttyUSB1", command_port="/dev/ttyUSB2", baud_rate=115200):
+class GPSReader:
+    def __init__(self, gps_port="/dev/ttyUSB1", setup_port="/dev/ttyUSB2", baudrate=115200):
         self.gps_port = gps_port
-        self.command_port = command_port
-        self.baud_rate = baud_rate
+        self.setup_port = setup_port
+        self.baudrate = baudrate
         self.ser1 = None
         self.ser2 = None
-        self.setup_gps()
-        self.open_serial()
+        self.latitude = None
+        self.longitude = None
+        self._stop_event = threading.Event()
+        self._gps_thread = threading.Thread(target=self._read_gps_continuously)
 
-    def setup_gps(self):
-        self.ser2 = serial.Serial(self.command_port, self.baud_rate)
-        print(f"{self.command_port} Open!!!")
+    def setup(self):
+        self.ser2 = serial.Serial(self.setup_port, self.baudrate)
+        print(f"{self.setup_port} Open!!!")
         self.ser2.write('AT+QGPS=1\r'.encode())
         print("AT+QGPS=1")
         self.ser2.close()
-        print(f"{self.command_port} Close!!!")
+        print(f"{self.setup_port} Close!!!")
 
-    def haversine(self, lon1, lat1, lon2, lat2):
-        
-        if None in (lon1, lat1, lon2, lat2):
-            raise ValueError("Gia tri kinh do vi do la none")
-        
-        lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-        r = 6371 
-        return c * r
-
-    def open_serial(self):
-        self.ser1 = serial.Serial(self.gps_port, self.baud_rate)
+    def open_gps_port(self):
+        self.ser1 = serial.Serial(self.gps_port, self.baudrate)
         print(f"{self.gps_port} Open!!!")
 
-    def read_coordinates(self):
-        try:
-            line = str(self.ser1.readline(), encoding='utf-8')
-            if line.startswith("$GPRMC"):
-                data = line.split(",")
-                if data[3] and data[5]:  # Check if latitude and longitude data is present
-                    latitude = float(data[3])
+    def close_gps_port(self):
+        if self.ser1 and self.ser1.is_open:
+            self.ser1.close()
+            print(f"{self.gps_port} Close!!!")
+
+    def _read_gps_continuously(self):
+        if not self.ser1 or not self.ser1.is_open:
+            self.open_gps_port()
+
+        while not self._stop_event.is_set():
+            try:
+                line = str(self.ser1.readline(), encoding='utf-8').strip()
+                if line.startswith("$GPRMC"):
+                    data = line.split(",")
+
+                    if not data[3] or not data[5]:
+                        print("Invalid data received: latitude or longitude is empty")
+                        continue
+
+                    try:
+                        latitude = float(data[3])
+                        longitude = float(data[5])
+                    except ValueError:
+                        print("Invalid data received: could not convert latitude or longitude to float")
+                        continue
+
                     latitude_direction = data[4]
-                    longitude = float(data[5])
                     longitude_direction = data[6]
 
                     if latitude_direction == "S":
@@ -54,46 +60,35 @@ class GPSModule:
                     if longitude_direction == "W":
                         longitude = -longitude
 
-                    latitude_temp = int(latitude / 100) + (latitude / 100 - int(latitude / 100)) * 100 / 60
-                    longitude_temp = int(longitude / 100) + (longitude / 100 - int(longitude / 100)) * 100 / 60
+                    self.latitude = int(latitude / 100) + (latitude / 100 - int(latitude / 100)) * 100 / 60
+                    self.longitude = int(longitude / 100) + (longitude / 100 - int(longitude / 100)) * 100 / 60
 
-                    return longitude_temp, latitude_temp
-                else:
-                    print("Invalid GPS data")
-                    return None, None
-            else:
-                print("No GPS data found")
-                return None, None
-        except serial.SerialException as e:
-            print(f"Serial exception: {e}")
-            return None, None
+            except serial.SerialException as e:
+                print(f"SerialException during read: {e}")
+                time.sleep(1)
+            except BrokenPipeError as e:
+                print(f"BrokenPipeError during read: {e}")
+                break
+
+    def start(self):
+        self.setup()
+        self._gps_thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+        self._gps_thread.join()
+
+    def get_current_location(self):
+        return self.latitude, self.longitude
+
+    def stop_gps(self):
+        self.ser2 = serial.Serial(self.setup_port, self.baudrate)
+        print(f"{self.setup_port} Open!!!")
+        self.ser2.write('AT+QGPSEND\r'.encode())
+        print("AT+QGPSEND")
+        self.ser2.close()
+        print(f"{self.setup_port} Close!!!")
 
     def destroy(self):
-        try:
-            if self.ser2 and not self.ser2.is_open:
-                self.ser2.open()
-            self.ser2.write('AT+QGPSEND\r'.encode())
-            print("AT+QGPSEND")
-        except serial.SerialException as e:
-            print(f"Serial exception: {e}")
-        finally:
-            if self.ser1 and self.ser1.is_open:
-                self.ser1.close()
-                print(f"{self.gps_port} Close!!!")
-            if self.ser2 and self.ser2.is_open:
-                self.ser2.close()
-                print(f"{self.command_port} Close!!!")
-
-# Usage example
-if __name__ == "__main__":
-    try:
-        gps = GPSModule()
-        while True:
-            longi, lati = gps.read_coordinates()
-            if longi is not None and lati is not None:
-                print(f"Longitude: {longi}, Latitude: {lati}")
-            else:
-                print("Failed to read coordinates")
-            time.sleep(2)
-    except KeyboardInterrupt:
-        gps.destroy()
+        self.close_gps_port()
+        self.stop_gps()
