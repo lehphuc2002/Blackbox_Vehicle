@@ -15,10 +15,10 @@ interval = 3
 status = 'Normal'
 type_car = 'Mercedes'
 broker = '0.tcp.ap.ngrok.io'
-port = 12612
+port = 13834
 #broker = '192.168.1.4'
 #port = 1883
-
+start_time_latency = None
 # longitude_GPS = 106.65829755
 # latitude_GPS = 10.771835167
 speed = 10
@@ -30,8 +30,17 @@ def on_publish(client, userdata, result):
 def on_connect(client, userdata, flags, rc):
 	if rc == 0:
 		print("Connected to MQTT Broker!")
+		client.subscribe('v1/devices/me/rpc/response/+') 
 	else:
 		print(f"Failed to connect, return code {rc}\n")
+
+def on_message(client, userdata, msg):
+	global start_time_latency
+	end_time_latency = time.time()
+	latency = end_time_latency - start_time_latency
+	print("Received response from ThingsBoard")
+	print("Latency: {:.3f} ms".format(latency * 1000))
+	print("Message received:", msg.payload.decode())
 
 def on_log(client, userdata, level, buf):
 	print("log:", buf)
@@ -82,7 +91,7 @@ def haversine(lon1, lat1, lon2, lat2):
     a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     r = 6371 
-    return c * r
+    return 1000*c * r
 
 def get_payload( ax,ay,az, vel, name_user, phone_user,longitude_GPS, latitude_GPS, statu):
 	#global longitude_GPS, latitude_GPS		
@@ -109,6 +118,7 @@ def get_payload( ax,ay,az, vel, name_user, phone_user,longitude_GPS, latitude_GP
 def init_client(token):
 	global type_car, license_plates
 	client = paho.Client()
+	client.on_message = on_message
 	client.on_publish = on_publish
 	client.on_connect = on_connect
 	client.on_log = on_log
