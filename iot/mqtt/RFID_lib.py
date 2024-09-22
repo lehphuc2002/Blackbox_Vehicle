@@ -2,7 +2,7 @@
 
 import pirc522
 import time
-
+print(pirc522.__file__)
 class RFIDReader:
     def __init__(self, user_library, pin_irq=None, antenna_gain=3):
         self.reader = pirc522.RFID(pin_irq=pin_irq, antenna_gain=antenna_gain)
