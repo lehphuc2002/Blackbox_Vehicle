@@ -25,6 +25,28 @@ i = now.strftime("%Y%m%d_%H%M%S.h264")
 while True:
 
 	ret, frame = cap.read()  # Capture frame from camera
+	if ret:
+		h,w, _ = frame.shape
+		current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  
+		font = cv2.FONT_HERSHEY_SIMPLEX
+		font_scale = 0.6
+		thickness = 2
+		color = (255, 255, 255) 
+		line_type = cv2.LINE_4
+		text = current_time
+		text_x = 10
+		text_y = h-10
+		
+		(text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+
+		overlay = frame.copy() 
+		cv2.rectangle(overlay, (text_x - 10, text_y - text_h - 10), (text_x + text_w + 10, text_y + baseline + 10), (0, 0, 0), -1)
+
+		alpha = 0.6 
+		frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+		cv2.putText(frame, text, (text_x, text_y), font, font_scale, color, thickness, line_type)
+		
 	if not ret:
 		break
     # Add the frame to the buffer (store the last 20 seconds)

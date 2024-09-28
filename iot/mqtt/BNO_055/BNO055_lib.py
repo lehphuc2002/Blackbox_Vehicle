@@ -1,11 +1,13 @@
+# -*- coding: utf-8 -*-
 import smbus2
 import time
 import numpy as np
 import sys
 import math
-from Kalman import KalmanFilter1 
+from Kalman import KalmanFilter1
 from Kalman import KalmanFilter2
 from Kalman import KalmanFilter3
+import threading  # Import thêm threading
 
 class BNO055Sensor:
     BNO055_ADDRESS = 0x29
@@ -24,7 +26,9 @@ class BNO055Sensor:
         self.kalman_filter_1 = KalmanFilter1(process_variance=1e-5, measurement_variance=1e-2)
         self.kalman_filter_2 = KalmanFilter2(process_variance=1e-5, measurement_variance=1e-2)
         self.kalman_filter_3 = KalmanFilter3(process_variance=1e-5, measurement_variance=1e-2)
-        
+        self.accel_data = [0, 0, 0]  # T?o bi?n d? luu d? li?u gia t?c k?
+        self.lock = threading.Lock()  # T?o m?t lock d? b?o v? d? li?u chia s?
+
         self.initialize_sensor()
 
     def write_byte_data(self, reg, value):
@@ -44,8 +48,6 @@ class BNO055Sensor:
 
     def read_sensor_data(self):
         accel_data = self.read_i2c_block_data(self.BNO055_ACCEL_DATA_X_LSB, 6)
-        #mag_data = self.read_i2c_block_data(self.BNO055_MAG_DATA_X_LSB, 6)
-        #gyro_data = self.read_i2c_block_data(self.BNO055_GYRO_DATA_X_LSB, 6)
 
         accel_x = ((accel_data[1] << 8) | accel_data[0]) & 0xFFFF
         if accel_x > 32767:
@@ -59,39 +61,25 @@ class BNO055Sensor:
         if accel_z > 32767:
             accel_z -= 65536
 
-        #filtered_x = self.kalman_filter_1.update(accel_x)
-        #filtered_y = self.kalman_filter_2.update(accel_y)
-        #filtered_z = self.kalman_filter_3.update(accel_z)
-        
-        filtered_x = accel_x
-        filtered_y = accel_y
-        filtered_z = accel_z
-        
-        
-        # mag_x = (mag_data[1] << 8) | mag_data[0]
-        # mag_y = (mag_data[3] << 8) | mag_data[2]
-        # mag_z = (mag_data[5] << 8) | mag_data[4]
+        return accel_x / 100, accel_y / 100, accel_z / 100
 
-        # gyro_x = (gyro_data[1] << 8) | gyro_data[0]
-        # gyro_y = (gyro_data[3] << 8) | gyro_data[2]
-        # gyro_z = (gyro_data[5] << 8) | gyro_data[4]
+    def read_accelerometer_thread(self):
+        while True:
+            accel_x, accel_y, accel_z = self.read_sensor_data()
+            with self.lock:  # S? d?ng lock khi c?p nh?t d? li?u
+                self.accel_data = [accel_x, accel_y, accel_z]
+            time.sleep(0.02)  # Ð?c d? li?u m?i 20ms
 
-        return filtered_x / 100, filtered_y / 100, filtered_z / 100
-        # return {
-            # 'accel': (filtered_x / 100, filtered_y / 100, filtered_z / 100),
-            # 'mag': (mag_x, mag_y, mag_z),
-            # 'gyro': (gyro_x, gyro_y, gyro_z) }
-            
     def accel_calib(self):
         print("Start calib")
         wx_values = []
         wy_values = []
         wz_values = []
-        i = 0;
+        i = 0
         while i < 100:
             try:
                 wx, wy, wz = self.read_sensor_data()
-                i = i+1
+                i += 1
             except:
                 continue
             wx_values.append(wx)
@@ -106,43 +94,43 @@ class BNO055Sensor:
 
         print('Accel Calibration Complete')
         return Accel_offsets
+
     def main_1(self):
         offset = self.accel_calib()
         time_start = time.time()
         vx = 0
         vy = 0
         vz = 0
+
         while True:
-            ax, ay, az  = self.read_sensor_data()
+            with self.lock:  # S? d?ng lock d? d?m b?o d? li?u không b? thay d?i gi?a ch?ng
+                ax, ay, az = self.accel_data
+
             ax = ax - offset[0]
             ay = ay - offset[1]
             az = az - offset[2]
+
             t = time.time()
-            dt = t-time_start
+            dt = t - time_start
             time_start = t
 
-            vx = round(vx + round(ax,1)*dt, 1)
-            vy = round(vy + round(ay,1)*dt, 1)
-            vz = round(vz + round(az,1)*dt, 1)
-                
-                
-                #  Read GPS parameters
-                # longitude_GPS, latitude_GPS = gps_EM06.read_coordinates()
-                # if longitude_GPS is not None and latitude_GPS is not None:
-                    # print(f"Longitude: {longitude_GPS}, Latitude: {latitude_GPS}")
-                #d = haversine(longitude_GPS_t, latitude_GPS_t, longitude_GPS, latitude_GPS)
-                #longitude_GPS_t, latitude_GPS_t = longitude_GPS, latitude_GPS
-                
-            v = math.sqrt(vx*vx +vy*vy +vz*vz)*3.6
-            #v_1 = self.kalman_filter_1.update(v)
-            print("Van toc", v)
+            vx = round(vx + round(ax, 1) * dt, 1)
+            vy = round(vy + round(ay, 1) * dt, 1)
+            vz = round(vz + round(az, 1) * dt, 1)
+
+            v = math.sqrt(vx * vx + vy * vy + vz * vz) * 3.6
+            print("Van toc:", v)
             print("Accelerometer:", ax, ay, az)
             time.sleep(0.02)
-    # def read_accelerometer(self):
-        # sensor_data = self.read_sensor_data()
-        # return sensor_data()   #['accel']
 
 # Usage example
 if __name__ == "__main__":
     sensor = BNO055Sensor()
+
+    # T?o thread d? d?c d? li?u t? gia t?c k?
+    accel_thread = threading.Thread(target=sensor.read_accelerometer_thread)
+    accel_thread.daemon = True  # Ð?m b?o thread d?ng khi chuong trình chính d?ng
+    accel_thread.start()
+
+    # Ch?y hàm chính
     sensor.main_1()
