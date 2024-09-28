@@ -24,11 +24,11 @@
 
 from publish import init_client, get_payload_test, ACCESS_TOKEN1, ACCESS_TOKEN2,ACCESS_TOKEN3, send_data_test, get_payload,ACC_X_THRESHOLD,ACC_Y_THRESHOLD ,ACC_Z_THRESHOLD, haversine, start_time_latency
 import paho.mqtt.client as paho
-from BNO055_lib import BNO055Sensor
-from GPS_lib import GPSReader
+from BNO_055.BNO055_lib import BNO055Sensor
+from GPS.GPS_lib import GPSReader
 import time
 import math
-from RFID_lib import RFIDReader, create_user_library
+from RFID.RFID_lib import RFIDReader, create_user_library
 global user_info
 import serial
 from datetime import datetime
