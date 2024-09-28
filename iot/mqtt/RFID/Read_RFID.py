@@ -18,10 +18,10 @@ from digitalio import DigitalInOut
 from PIL import Image
 from pocketbase import PocketBase
 
-# ID c?a th?
+
 DEVID = 2222
 
-# Kho?ng ngh? gi?a hai l?n d?c th?
+
 DEVICE_DELAY_BETWEEN_READ = 3  
 DEVICE_BEEP_DELAY = 0.5  
 
@@ -34,11 +34,14 @@ i2c_bus = 1
 
 
 
+
 def init_pn532():
     global pn532
     while True:
         try:
+
             i2c = I2C(SCL, SDA)
+
             pn532 = PN532_I2C(i2c, debug=False)
             pn532.SAM_configuration()
 
@@ -55,6 +58,7 @@ def check_connection():
     except Exception:
         traceback.print_exc()
         return False
+
 
 
 
