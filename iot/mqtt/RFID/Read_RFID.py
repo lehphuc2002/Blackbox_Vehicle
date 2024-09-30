@@ -38,6 +38,7 @@ def init_pn532():
     global pn532
     while True:
         try:
+
             i2c = board.I2C()
             reset_pin = DigitalInOut(board.D6)
             req_pin = DigitalInOut(board.D12)
@@ -58,6 +59,7 @@ def check_connection():
     except Exception:
         traceback.print_exc()
         return False
+
 
 def device_read_data():
 
@@ -98,7 +100,6 @@ def read_data_test():
         else:
             print(f"Failed to read block {block_to_read}")
             break
-
     # Decode and strip null bytes from the data
     data_str = data.decode("utf-8").rstrip('\0')
     return data_str
