@@ -60,32 +60,10 @@ def check_connection():
         traceback.print_exc()
         return False
 
-
-def device_read_data():
-
-    uid = pn532.read_passive_target(timeout=0.5)
-    if uid is None:
-        # print("No card found")
-        return
-
-    authentication_key = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-    success = pn532.mifare_classic_authenticate_block(uid, 1, 0x60, authentication_key)
-    if success:
-        data_bytes = pn532.mifare_classic_read_block(1)
-        if data_bytes:
-            data = data_bytes.decode("utf-8").rstrip("\0")
-
-            return data
-        else:
-            print("Error reading data")
-    else:
-        print("Authentication failed")
-
-
 def device_isvalid_time(read_ts: float = datetime.now().timestamp()):
     return True
 
-def read_data_test():
+def read_data():
     block_to_read = 4  # Starting block
     blocks_to_read = 3  # Number of blocks to read (based on how much data was written)
     data = bytearray()
@@ -111,6 +89,6 @@ def device_check_connect():
 if __name__ == "__main__":
     init_pn532()
     while True:
-        data = read_data_test()
+        data = read_data()
         print(data)
         time.sleep(1)
