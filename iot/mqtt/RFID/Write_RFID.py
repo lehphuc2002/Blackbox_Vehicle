@@ -40,7 +40,7 @@ def write_data(data):
     uid = pn532.read_passive_target(timeout=0.5)
     if uid is None
         print("No card found")
-        return
+        return False
     for i in range(blocks_needed):
         # Get the next 16-byte chunk
         chunk = data_bytes[i * 16:(i + 1) * 16]
@@ -69,6 +69,8 @@ def write_data(data):
         block_to_write += 1
 
     print("Data writing completed.")
+    return True
+
 
 
 
@@ -78,5 +80,8 @@ if __name__ == "__main__":
         data_1 = input("Enter Name: ")
         data_2 = input("Enter Phone number: ")
         data = f"Name: {data_1}, Phone number: {data_2}"
-        write_data(data)
+        wRFID = write_data(data)
+        if wRFID is True:
+            print("Card was written")
+            break
         time.sleep(1)
