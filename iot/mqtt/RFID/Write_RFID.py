@@ -37,7 +37,10 @@ def write_data(data):
     # Start writing from block 4 (beginning of Sector 1)
     block_to_write = 4
     blocks_needed = (len(data_bytes) + 15) // 16  # Calculate number of blocks needed
-
+    uid = pn532.read_passive_target(timeout=0.5)
+    if uid is None
+        print("No card found")
+        return
     for i in range(blocks_needed):
         # Get the next 16-byte chunk
         chunk = data_bytes[i * 16:(i + 1) * 16]
@@ -71,8 +74,6 @@ def write_data(data):
 
 if __name__ == "__main__":
     init_pn532()
-    uid = pn532.read_passive_target(timeout=0.5)
-    print(uid)
     while True:
         data_1 = input("Enter Name: ")
         data_2 = input("Enter Phone number: ")

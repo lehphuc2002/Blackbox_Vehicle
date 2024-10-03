@@ -1,21 +1,11 @@
-import binascii
 import os
-import random
 import time
 from datetime import datetime
-from os import path
-import requests
 import traceback
 from busio import I2C
 import board
-import numpy as np
-import pocketbase
-import RPi.GPIO as GPIO
-from adafruit_pn532.i2c import PN532_I2C
-from adafruit_pn532.adafruit_pn532 import PN532
 from digitalio import DigitalInOut
-from PIL import Image
-from pocketbase import PocketBase
+from adafruit_pn532.i2c import PN532_I2C
 
 
 DEVID = 2222
@@ -68,6 +58,9 @@ def read_data():
     blocks_to_read = 3  # Number of blocks to read (based on how much data was written)
     data = bytearray()
     uid = pn532.read_passive_target(timeout=0.5)
+    if uid is None
+        print("No card found")
+        return
     authentication_key = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
     success_auth = pn532.mifare_classic_authenticate_block(uid, block_to_read, 0x60, authentication_key)
     for i in range(blocks_to_read):
