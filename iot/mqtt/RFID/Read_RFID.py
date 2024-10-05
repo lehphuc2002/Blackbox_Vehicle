@@ -1,87 +1,86 @@
-import os
-import time
-from datetime import datetime
-import traceback
-from busio import I2C
+import json
 import board
+from busio import I2C
 from digitalio import DigitalInOut
+import binascii
+import time
 from adafruit_pn532.i2c import PN532_I2C
+import traceback
 
-
-DEVID = 2222
-
-
-DEVICE_DELAY_BETWEEN_READ = 3  
-DEVICE_BEEP_DELAY = 0.5  
-
-#
-display = None
 pn532 = None
-buzzer_pin = 4
-pn532_address = 0x24
-i2c_bus = 1
-
-
-
+last_uid = None  # Store the last UID of the card
+data = {'name': None, 'phone_number': None}  # Initial data when no card is detected
 
 def init_pn532():
     global pn532
     while True:
         try:
-
             i2c = board.I2C()
             reset_pin = DigitalInOut(board.D6)
             req_pin = DigitalInOut(board.D12)
             pn532 = PN532_I2C(i2c, debug=False, reset=reset_pin, req=req_pin)
             ic, ver, rev, support = pn532.firmware_version
-            print("Found PN532 with firmware version: {0}.{1}".format(ver, rev))
+            print(f"Found PN532 with firmware version: {ver}.{rev}")
             pn532.SAM_configuration()
             break
         except Exception:
             traceback.print_exc()
             pass
 
-def check_connection():
-    global pn532
+def get_user_data(uid):
+    """Retrieve user data from the JSON file based on the UID."""
     try:
-        ic, ver, rev, support = pn532.firmware_version
-        return True
-    except Exception:
-        traceback.print_exc()
-        return False
-
-def device_isvalid_time(read_ts: float = datetime.now().timestamp()):
-    return True
+        with open('users.json', 'r') as f:
+            users = json.load(f)
+            if uid in users:
+                return users[uid]
+            else:
+                print(f"No information found for UID {uid}.")
+                return None
+    except FileNotFoundError:
+        print("User data file not found.")
+        return None
 
 def read_data():
-    block_to_read = 4  # Starting block
-    blocks_to_read = 3  # Number of blocks to read (based on how much data was written)
-    data = bytearray()
+    """Continuously read NFC cards and update user data."""
+    global last_uid, data
+    
     uid = pn532.read_passive_target(timeout=0.5)
-    if uid is None
-        print("No card found")
-        return
-    authentication_key = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-    success_auth = pn532.mifare_classic_authenticate_block(uid, block_to_read, 0x60, authentication_key)
-    for i in range(blocks_to_read):
-        data_bytes = pn532.mifare_classic_read_block(block_to_read)
-        if data_bytes:
-            data.extend(data_bytes)
-            block_to_read += 1
+
+    if uid is None:
+        # No new card detected, retain the last user's data
+        if last_uid is not None:
+            print(f"No new card detected. Retaining last user data for UID: {last_uid}")
         else:
-            print(f"Failed to read block {block_to_read}")
-            break
-    # Decode and strip null bytes from the data
-    data_str = data.decode("utf-8").rstrip('\0')
-    return data_str
+            # If no card has ever been detected, display default data
+            print(f"No card detected. User data: Name: {data['name']}, Phone number: {data['phone_number']}")
+        return False
 
+    # Convert UID to a hex string
+    uid_hex = binascii.hexlify(uid).decode().upper()
 
-def device_check_connect():
-    return os.system("ping -c 1 google.com.vn >/dev/null") == 0
+    # If a new card is detected, update the data
+    if uid_hex != last_uid:
+        print(f"New card detected. UID: {uid_hex}")
+        user_data = get_user_data(uid_hex)
+        
+        if user_data:
+            data = user_data  # Update with new user information
+            print(f"User information for UID {uid_hex}:")
+            print(f"Name: {data['name']}")
+            print(f"Phone number: {data['phone_number']}")
+        else:
+            # If the card UID is not found, keep default None values
+            data = {'name': None, 'phone_number': None}
+            print("No user information found for this card.")
+        
+        last_uid = uid_hex  # Update the last detected UID
+
+    return True
 
 if __name__ == "__main__":
     init_pn532()
     while True:
-        data = read_data()
+        rRFID = read_data()
         print(data)
-        time.sleep(1)
+        time.sleep(1)  # Read every 1 second
