@@ -3,6 +3,7 @@ import board
 from busio import I2C
 from digitalio import DigitalInOut
 import time
+import threading  # Added threading module
 from adafruit_pn532.i2c import PN532_I2C
 import traceback
 import binascii
@@ -13,6 +14,8 @@ class RFID_lib:
         self.pn532 = None
         self.last_uid = None  # Store the last UID of the card
         self.data = {'name': None, 'phone_number': None}  # Initial data when no card is detected
+        self.thread = None  # Thread for reading data
+        self.stop_thread = False  # Control variable for stopping the thread
 
         while True:
             try:
@@ -78,45 +81,64 @@ class RFID_lib:
 
     def read_data(self):
         """Continuously read NFC cards and update user data."""
-        uid = self.pn532.read_passive_target(timeout=0.5)
+        while not self.stop_thread:
+            uid = self.pn532.read_passive_target(timeout=0.5)
 
-        if uid is None:
-            # No new card detected, retain the last user's data
-            if self.last_uid is not None:
-                print(f"No new card detected. Retaining last user data for UID: {self.last_uid}")
+            if uid is None:
+                # No new card detected, retain the last user's data
+                if self.last_uid is not None:
+                    print(f"No new card detected.")
+                else:
+                    # If no card has ever been detected, display default data
+                    print(f"No card detected. User data: Name: {self.data['name']}, Phone number: {self.data['phone_number']}")
             else:
-                # If no card has ever been detected, display default data
-                print(f"No card detected. User data: Name: {self.data['name']}, Phone number: {self.data['phone_number']}")
-            return False
+                # Convert UID to a hex string
+                uid_hex = binascii.hexlify(uid).decode().upper()
 
-        # Convert UID to a hex string
-        uid_hex = binascii.hexlify(uid).decode().upper()
+                # If a new card is detected, update the data
+                if uid_hex != self.last_uid:
+                    print(f"New card detected. UID: {uid_hex}")
+                    user_data = self.get_user_data(uid_hex)
 
-        # If a new card is detected, update the data
-        if uid_hex != self.last_uid:
-            print(f"New card detected. UID: {uid_hex}")
-            user_data = self.get_user_data(uid_hex)
+                    if user_data:
+                        self.data = user_data  # Update with new user information
+                        print(f"User information for UID {uid_hex}:")
+                        print(f"Name: {self.data['name']}")
+                        print(f"Phone number: {self.data['phone_number']}")
+                    else:
+                        # If the card UID is not found, keep default None values
+                        self.data = {'name': None, 'phone_number': None}
+                        print("No user information found for this card.")
 
-            if user_data:
-                self.data = user_data  # Update with new user information
-                print(f"User information for UID {uid_hex}:")
-                print(f"Name: {self.data['name']}")
-                print(f"Phone number: {self.data['phone_number']}")
-            else:
-                # If the card UID is not found, keep default None values
-                self.data = {'name': None, 'phone_number': None}
-                print("No user information found for this card.")
+                    self.last_uid = uid_hex  # Update the last detected UID
 
-            self.last_uid = uid_hex  # Update the last detected UID
+            time.sleep(1)  # Add delay to avoid excessive polling
 
-        return True
     def get_data(self):
         """Return the current data."""
         return self.data
 
+    def start_reading_thread(self):
+        """Start the thread to continuously read NFC cards."""
+        self.stop_thread = False
+        self.thread = threading.Thread(target=self.read_data)
+        self.thread.start()
+
+    def stop_reading_thread(self):
+        """Stop the reading thread."""
+        self.stop_thread = True
+        if self.thread is not None:
+            self.thread.join()  # Wait for the thread to finish
+
 if __name__ == "__main__":
     rfid = RFID_lib()  # Initialize the RFID object
-    while True:
-        rfid.read_data()
-        print(rfid.data)  # Print current data
-        time.sleep(1)  # Read every 1 second
+    rfid.start_reading_thread()  # Start the thread to read data in the background
+
+    # The main thread can continue doing other things
+    try:
+        while True:
+            # You can still access the data from the main thread
+            print(rfid.get_data())  # Print current data
+            time.sleep(2)  # Main thread waits for 2 seconds
+    except KeyboardInterrupt:
+        rfid.stop_reading_thread()  # Stop the background thread when exiting
