@@ -4,10 +4,7 @@ import time
 import numpy as np
 import sys
 import math
-from Kalman import KalmanFilter1
-from Kalman import KalmanFilter2
-from Kalman import KalmanFilter3
-import threading  # Import thêm threading
+import threading
 
 class BNO055Sensor:
     BNO055_ADDRESS = 0x29
@@ -15,19 +12,20 @@ class BNO055Sensor:
     BNO055_PWR_MODE = 0x3E
     BNO055_SYS_TRIGGER = 0x3F
     BNO055_TEMP = 0x34
-    BNO055_ACCEL_DATA_X_LSB = 0x28
-    BNO055_MAG_DATA_X_LSB = 0x0E
-    BNO055_GYRO_DATA_X_LSB = 0x14
+
+    # Acceleration and Linear Acceleration register addresses
+    BNO055_ACCEL_DATA_X_LSB = 0x08
+    BNO055_LINEAR_ACCEL_DATA_X_LSB = 0x28
+    
     OPR_MODE_CONFIG = 0x00
     OPR_MODE_NDOF = 0x0C
 
     def __init__(self, bus_num=1):
         self.bus = smbus2.SMBus(bus_num)
-        self.kalman_filter_1 = KalmanFilter1(process_variance=1e-5, measurement_variance=1e-2)
-        self.kalman_filter_2 = KalmanFilter2(process_variance=1e-5, measurement_variance=1e-2)
-        self.kalman_filter_3 = KalmanFilter3(process_variance=1e-5, measurement_variance=1e-2)
-        self.accel_data = [0, 0, 0]  # T?o bi?n d? luu d? li?u gia t?c k?
-        self.lock = threading.Lock()  # T?o m?t lock d? b?o v? d? li?u chia s?
+        self.accel_data = [0, 0, 0]
+        self.linear_accel_data = [0, 0, 0]
+        self.lock = threading.Lock()
+        self.running = True  # Add a running attribute to control threads
 
         self.initialize_sensor()
 
@@ -46,91 +44,70 @@ class BNO055Sensor:
         self.write_byte_data(self.BNO055_OPR_MODE, self.OPR_MODE_NDOF)
         time.sleep(0.03)
 
-    def read_sensor_data(self):
+    def read_accelerometer_data(self):
         accel_data = self.read_i2c_block_data(self.BNO055_ACCEL_DATA_X_LSB, 6)
 
         accel_x = ((accel_data[1] << 8) | accel_data[0]) & 0xFFFF
-        if accel_x > 32767:
-            accel_x -= 65536
-
         accel_y = ((accel_data[3] << 8) | accel_data[2]) & 0xFFFF
-        if accel_y > 32767:
-            accel_y -= 65536
-
         accel_z = ((accel_data[5] << 8) | accel_data[4]) & 0xFFFF
-        if accel_z > 32767:
-            accel_z -= 65536
+
+        if accel_x > 32767: accel_x -= 65536
+        if accel_y > 32767: accel_y -= 65536
+        if accel_z > 32767: accel_z -= 65536
 
         return accel_x / 100, accel_y / 100, accel_z / 100
 
+    def read_linear_accelerometer_data(self):
+        linear_accel_data = self.read_i2c_block_data(self.BNO055_LINEAR_ACCEL_DATA_X_LSB, 6)
+
+        linear_accel_x = ((linear_accel_data[1] << 8) | linear_accel_data[0]) & 0xFFFF
+        linear_accel_y = ((linear_accel_data[3] << 8) | linear_accel_data[2]) & 0xFFFF
+        linear_accel_z = ((linear_accel_data[5] << 8) | linear_accel_data[4]) & 0xFFFF
+
+        if linear_accel_x > 32767: linear_accel_x -= 65536
+        if linear_accel_y > 32767: linear_accel_y -= 65536
+        if linear_accel_z > 32767: linear_accel_z -= 65536
+
+        return linear_accel_x / 100, linear_accel_y / 100, linear_accel_z / 100
+
     def read_accelerometer_thread(self):
-        while True:
-            accel_x, accel_y, accel_z = self.read_sensor_data()
-            with self.lock:  # S? d?ng lock khi c?p nh?t d? li?u
+        while self.running:
+            accel_x, accel_y, accel_z = self.read_accelerometer_data()
+            with self.lock:
                 self.accel_data = [accel_x, accel_y, accel_z]
-            time.sleep(0.02)  # Ð?c d? li?u m?i 20ms
-
-    def accel_calib(self):
-        print("Start calib")
-        wx_values = []
-        wy_values = []
-        wz_values = []
-        i = 0
-        while i < 100:
-            try:
-                wx, wy, wz = self.read_sensor_data()
-                i += 1
-            except:
-                continue
-            wx_values.append(wx)
-            wy_values.append(wy)
-            wz_values.append(wz)
-
-        wx_mean = np.mean(wx_values)
-        wy_mean = np.mean(wy_values)
-        wz_mean = np.mean(wz_values)
-
-        Accel_offsets = [wx_mean, wy_mean, wz_mean]
-
-        print('Accel Calibration Complete')
-        return Accel_offsets
-
-    def main_1(self):
-        offset = self.accel_calib()
-        time_start = time.time()
-        vx = 0
-        vy = 0
-        vz = 0
-
-        while True:
-            with self.lock:  # S? d?ng lock d? d?m b?o d? li?u không b? thay d?i gi?a ch?ng
-                ax, ay, az = self.accel_data
-
-            ax = ax - offset[0]
-            ay = ay - offset[1]
-            az = az - offset[2]
-
-            t = time.time()
-            dt = t - time_start
-            time_start = t
-
-            vx = round(vx + round(ax, 1) * dt, 1)
-            vy = round(vy + round(ay, 1) * dt, 1)
-            vz = round(vz + round(az, 1) * dt, 1)
-
-            v = math.sqrt(vx * vx + vy * vy + vz * vz) * 3.6
-            print("Van toc:", v)
-            print("Accelerometer:", ax, ay, az)
             time.sleep(0.02)
 
-# Usage example
-if __name__ == "__main__":
-    sensor = BNO055Sensor()
+    def read_linear_accelerometer_thread(self):
+        while self.running:
+            linear_accel_x, linear_accel_y, linear_accel_z = self.read_linear_accelerometer_data()
+            with self.lock:
+                self.linear_accel_data = [linear_accel_x, linear_accel_y, linear_accel_z]
+            time.sleep(0.02)
 
-    # T?o thread d? d?c d? li?u t? gia t?c k?
-    accel_thread = threading.Thread(target=sensor.read_accelerometer_thread)
-    accel_thread.daemon = True  # Ð?m b?o thread d?ng khi chuong trình chính d?ng
-    accel_thread.start()
+    def stop_threads(self):
+        """Stops the accelerometer and linear accelerometer threads."""
+        self.running = False
 
-    # Ch?y hàm chính
-    sensor.main_1()
+    def main_1(self):
+        time_start = time.time()
+        vx = vy = vz = 0
+
+        while self.running:
+            with self.lock:
+                ax, ay, az = self.accel_data
+                lax, lay, laz = self.linear_accel_data
+#
+#            t = time.time()
+#            dt = t - time_start
+#            time_start = t
+#
+#            vx += ax * dt
+#            vy += ay * dt
+#            vz += az * dt
+
+            #velocity = math.sqrt(vx**2 + vy**2 + vz**2) * 3.6
+            #print("Velocity:", velocity)
+            print("Accelerometer:", ax, ay, az)
+            print("Linear Accelerometer:", lax, lay, laz)
+            time.sleep(0.02)
+
