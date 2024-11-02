@@ -15,6 +15,7 @@ app = Flask(__name__)
 frame_lock = threading.Lock()
 camera = None
 active_viewers = set()
+server_running = False
 
 class CameraStream:
     def __init__(self, mqtt_client):
@@ -46,33 +47,53 @@ class CameraStream:
 
     def stop(self):
         self.stream_active = False
-        self.thread.join()
+        if hasattr(self, 'thread'):
+            self.thread.join()
         if self.cap:
             self.cap.release()
 
     def start_cloudflared_tunnel(self):
         """Starts cloudflared tunnel with additional parameters and retrieves the URL for ThingsBoard."""
-        process = subprocess.Popen(
-            [
-                "cloudflared", "tunnel", "--url", "http://localhost:5000",
-                "--http2-origin", "--no-chunked-encoding",
-                "--proxy-keepalive-timeout", "120s", "--proxy-connection-timeout", "120s"
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        for line in process.stdout:
-            url_match = re.search(r"https:\/\/[^\s]+", line)
-            if url_match:
-                tunnel_url = url_match.group(0)
-                print(f"Tunnel URL: {tunnel_url}")
-                self.mqtt_client.publish("URL Camera", tunnel_url)  # Publishes the URL to ThingsBoard
-                break  # Stop reading further once the URL is found
+        def run_tunnel():
+            process = subprocess.Popen(
+                [
+                    "cloudflared", "tunnel", "--url", "http://localhost:5000",
+                    "--http2-origin", "--no-chunked-encoding",
+                    "--proxy-keepalive-timeout", "120s", "--proxy-connection-timeout", "120s"
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                bufsize=1
+            )
+            
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                print(line.strip())  # Print all output
+                
+                # Look for the specific line containing the tunnel URL
+                if "Your quick Tunnel has been created! Visit it at" in line:
+                    # Get the next line which contains the URL
+                    url_line = process.stdout.readline().strip()
+                    # Extract URL from the line
+                    url_match = re.search(r"https://[\w-]+\.trycloudflare\.com", url_line)
+                    if url_match:
+                        tunnel_url = url_match.group(0)
+                        print(f"Tunnel URL: {tunnel_url}")
+                        self.mqtt_client.publish("URL Camera", tunnel_url)
 
-        process.stdout.close()
-        process.wait()
+        tunnel_thread = threading.Thread(target=run_tunnel)
+        tunnel_thread.daemon = True
+        tunnel_thread.start()
+
+    def run_server(self):
+        """Method to run the Flask server"""
+        global server_running
+        if not server_running:
+            server_running = True
+            app.run(host="0.0.0.0", port=5000, threaded=True)
 
 def initialize_camera(mqtt_client):
     global camera
@@ -80,20 +101,6 @@ def initialize_camera(mqtt_client):
         camera.stop()
     camera = CameraStream(mqtt_client)
     return camera
-
-# Flask endpoints
-@app.route('/')
-def index():
-    return render_template('index_gstreamer.html')
-
-@app.route('/video_feed')
-def video_feed():
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/get_viewer_count')
-def get_viewer_count():
-    return jsonify({"count": len(active_viewers)})
 
 def generate_frames():
     viewer_id = threading.get_ident()
@@ -111,6 +118,19 @@ def generate_frames():
     finally:
         active_viewers.discard(viewer_id)
 
+@app.route('/')
+def index():
+    return render_template('index_gstreamer.html')
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/get_viewer_count')
+def get_viewer_count():
+    return jsonify({"count": len(active_viewers)})
+
 def cleanup():
     global camera
     if camera:
@@ -123,3 +143,11 @@ def signal_handler(signum, frame):
 # Register signal handlers
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
+
+if __name__ == "__main__":
+    try:
+        mqtt_client = MQTTClient()
+        camera = initialize_camera(mqtt_client)
+        app.run(host="0.0.0.0", port=5000, threaded=True)
+    finally:
+        cleanup()
