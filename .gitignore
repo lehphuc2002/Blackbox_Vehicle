@@ -6,7 +6,6 @@ __pycache__/
 0001-Cam_test.patch
 0001-add-kalman-file.patch
 test_frame.jpg
-index.html
 
 # C extensions
 *.so
