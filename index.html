@@ -1,0 +1,52 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC Stream</title>
+</head>
+<body>
+    <video id="video" autoplay playsinline style="width: 100%;"></video>
+    <script>
+        const video = document.getElementById('video');
+        
+        async function start() {
+            try {
+                const pc = new RTCPeerConnection({
+                    sdpSemantics: 'unified-plan',
+                    iceServers: [{urls: ['stun:stun.l.google.com:19302']}]
+                });
+                
+                pc.ontrack = (event) => {
+                    if (event.track.kind === 'video') {
+                        video.srcObject = event.streams[0];
+                    }
+                };
+                
+                const offer = await pc.createOffer({
+                    offerToReceiveVideo: true,
+                    offerToReceiveAudio: false
+                });
+                await pc.setLocalDescription(offer);
+                
+                const response = await fetch('/offer', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        sdp: pc.localDescription.sdp,
+                        type: pc.localDescription.type
+                    })
+                });
+                
+                const answer = await response.json();
+                await pc.setRemoteDescription(answer);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        
+        start();
+    </script>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Video Stream</title>
+    <style>
+        :root {
+            --primary-color: #2196F3;
+            --secondary-color: #1976D2;
+            --text-color: #333;
+            --bg-color: #f5f5f5;
+            --error-color: #f44336;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: #fff;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .stream-container {
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .video-feed {
+            width: 100%;
+            max-width: 960px;
+            height: auto;
+            aspect-ratio: 16/9;
+            border-radius: 8px;
+            margin: 0 auto;
+            display: block;
+            background-color: #000;
+            object-fit: cover;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: var(--primary-color);
+            color: white;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn:hover {
+            background-color: var(--secondary-color);
+        }
+
+        .btn-restart {
+            background-color: var(--error-color);
+        }
+
+        .btn-restart:hover {
+            background-color: #d32f2f;
+        }
+
+        .status {
+            margin-top: 1rem;
+            text-align: center;
+            color: #666;
+        }
+
+        #restartStatus {
+            margin-top: 10px;
+            text-align: center;
+            color: var(--error-color);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .btn {
+                width: 100%;
+                max-width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Live Stream</h1>
+    </header>
+
+    <div class="container">
+        <div class="stream-container">
+            <img src="/video_feed" class="video-feed" alt="Live Stream" />
+            
+            <div class="controls">
+                <button class="btn" onclick="toggleStream()">Start/Stop Stream</button>
+                <button class="btn" onclick="toggleFullscreen()">Fullscreen</button>
+                <button class="btn" onclick="captureSnapshot()">Snapshot</button>
+                <button class="btn btn-restart" onclick="restartStream()">Restart Stream</button>
+            </div>
+
+            <div class="status">
+                <p>Stream Status: <span id="streamStatus">Active</span></p>
+                <p>Viewers: <span id="viewerCount">0</span></p>
+            </div>
+            <div id="restartStatus"></div>
+        </div>
+    </div>
+
+    <script>
+        let streaming = true;
+
+        function toggleStream() {
+            streaming = !streaming;
+            const streamStatus = document.getElementById('streamStatus');
+            streamStatus.textContent = streaming ? 'Active' : 'Stopped';
+            
+            const videoFeed = document.querySelector('.video-feed');
+            videoFeed.style.display = streaming ? 'block' : 'none';
+        }
+
+        function toggleFullscreen() {
+            const videoFeed = document.querySelector('.video-feed');
+            if (!document.fullscreenElement) {
+                videoFeed.requestFullscreen().catch(err => {
+                    console.log(`Error attempting to enable fullscreen: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function captureSnapshot() {
+            // Implement snapshot functionality here
+            console.log('Snapshot captured');
+        }
+
+        async function restartStream() {
+            const statusElement = document.getElementById('restartStatus');
+            statusElement.textContent = 'Reloading page...';
+            
+            try {
+                const response = await fetch('/restart_stream', {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    setTimeout(() => {
+                        const videoFeed = document.querySelector('.video-feed');
+                        videoFeed.src = '/video_feed?' + new Date().getTime();
+                        statusElement.textContent = 'Stream restarted successfully';
+                    }, 2000);
+                } else {
+                    statusElement.textContent = 'Failed to restart stream. Please try again.';
+                }
+            } catch (error) {
+                statusElement.textContent = 'Error restarting stream: ' + error.message;
+            }
+        }
+
+        // Update viewer count periodically
+        function updateViewerCount() {
+            fetch('/get_viewer_count')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('viewerCount').textContent = data.count;
+                })
+                .catch(error => console.error('Error fetching viewer count:', error));
+        }
+
+        // Update viewer count every 5 seconds
+        setInterval(updateViewerCount, 5000);
+
+        // Initial viewer count update
+        updateViewerCount();
+    </script>
+</body>
+</html>
