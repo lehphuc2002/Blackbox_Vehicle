@@ -14,9 +14,9 @@ ACCESS_TOKENS = {
 }
 
 # Update your broker and port settings
-# BROKER = '10.0.99.11'
-# PORT = 1883
-# INTERVAL = 3
+BROKER = '10.0.99.11'
+PORT = 1883
+INTERVAL = 3
 
 # BROKER = '192.168.1.160'
 # PORT = 1883
@@ -26,9 +26,9 @@ ACCESS_TOKENS = {
 # PORT = 1883
 # INTERVAL = 3
 
-BROKER = '192.168.31.222'
-PORT = 1883
-INTERVAL = 3
+# BROKER = '192.168.31.222'
+# PORT = 1883
+# INTERVAL = 3
 
 # BROKER = '0.tcp.ap.ngrok.io'
 # PORT = 18361
@@ -146,7 +146,7 @@ class MQTTClient:
 	def get_speed(self):
 		return round(rnd.uniform(20, 120), 2)
 
-	def create_payload_URL_camera_serveo(self, url):
+	def create_payload_URL_camera(self, url):
 		return json.dumps({'URL Camera': url})
 
 	# Keep all original payload creation functions

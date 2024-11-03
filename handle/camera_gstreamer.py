@@ -6,6 +6,7 @@ import threading
 import time
 import subprocess
 import re
+import paho.mqtt.client as paho
 from iot.mqtt.publish import MQTTClient  # Assuming MQTTClient is properly defined
 
 # Initialize Flask app
@@ -55,6 +56,7 @@ class CameraStream:
     def start_cloudflared_tunnel(self):
         """Starts cloudflared tunnel with additional parameters and retrieves the URL for ThingsBoard."""
         def run_tunnel():
+            print("Calling command cloudflare...", flush=True)
             process = subprocess.Popen(
                 [
                     "cloudflared", "tunnel", "--url", "http://localhost:5000",
@@ -62,27 +64,35 @@ class CameraStream:
                     "--proxy-keepalive-timeout", "120s", "--proxy-connection-timeout", "120s"
                 ],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout
                 universal_newlines=True,
                 bufsize=1
             )
+            print("Done call command cloudflare!", flush=True)
             
-            while True:
-                line = process.stdout.readline()
-                if not line:
-                    break
-                print(line.strip())  # Print all output
-                
-                # Look for the specific line containing the tunnel URL
-                if "Your quick Tunnel has been created! Visit it at" in line:
-                    # Get the next line which contains the URL
-                    url_line = process.stdout.readline().strip()
-                    # Extract URL from the line
-                    url_match = re.search(r"https://[\w-]+\.trycloudflare\.com", url_line)
-                    if url_match:
-                        tunnel_url = url_match.group(0)
-                        print(f"Tunnel URL: {tunnel_url}")
-                        self.mqtt_client.publish("URL Camera", tunnel_url)
+            try:
+                for line in iter(process.stdout.readline, ''):
+                    line = line.strip()
+                    print(line, flush=True)  # Print each line of output
+
+                    # Check for the line with the URL
+                    if "https://" in line:
+                        url_match = re.search(r"https://[\w-]+\.trycloudflare\.com", line)
+                        if url_match:
+                            tunnel_url = url_match.group(0)
+                            print(f"Tunnel URL: {tunnel_url}")
+                            # Push Serveo URL to MQTT
+                            payload = self.mqtt_client.create_payload_URL_camera(tunnel_url)
+                            ret = self.mqtt_client.publish(payload)
+                            if ret.rc == paho.MQTT_ERR_SUCCESS:
+                                print("URL published successfully")
+                            else:
+                                print(f"Failed to publish URL, error code: {ret.rc}")
+            except Exception as e:
+                print(f"Error reading output: {e}", flush=True)
+            finally:
+                process.stdout.close()
+                process.wait()
 
         tunnel_thread = threading.Thread(target=run_tunnel)
         tunnel_thread.daemon = True

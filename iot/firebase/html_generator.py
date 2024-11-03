@@ -7,6 +7,7 @@ def generate_html(customer_name, image_data):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="description" content="Premium image gallery for {customer_name}">
         <title>{customer_name}'s Premium Gallery</title>
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap');
@@ -34,6 +35,8 @@ def generate_html(customer_name, image_data):
                 color: var(--text-primary);
                 min-height: 100vh;
                 line-height: 1.6;
+                display: flex;
+                flex-direction: column;
             }}
 
             .header {{
@@ -82,6 +85,7 @@ def generate_html(customer_name, image_data):
                 background: var(--surface-3);
                 box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
                 transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+                cursor: pointer;
             }}
 
             .gallery-item:hover {{
@@ -100,7 +104,7 @@ def generate_html(customer_name, image_data):
                 transform: scale(1.05);
             }}
 
-            .gallery-item p {{
+            .gallery-item .metadata {{
                 padding: 1rem;
                 background: rgba(0, 0, 0, 0.8);
                 color: var(--text-secondary);
@@ -112,8 +116,50 @@ def generate_html(customer_name, image_data):
                 transition: transform 0.3s ease;
             }}
 
-            .gallery-item:hover p {{
+            .gallery-item:hover .metadata {{
                 transform: translateY(0);
+            }}
+
+            .modal {{
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.9);
+                z-index: 1000;
+                overflow: auto;
+                padding: 2rem;
+            }}
+
+            .modal-content {{
+                max-width: 90%;
+                max-height: 90vh;
+                margin: auto;
+                display: block;
+                cursor: zoom-out;
+            }}
+
+            .modal-close {{
+                position: fixed;
+                top: 1rem;
+                right: 1rem;
+                color: var(--text-primary);
+                font-size: 2rem;
+                cursor: pointer;
+                background: var(--surface-3);
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background-color 0.3s ease;
+            }}
+
+            .modal-close:hover {{
+                background: var(--surface-2);
             }}
 
             footer {{
@@ -141,12 +187,16 @@ def generate_html(customer_name, image_data):
                 .header {{
                     padding: 3rem 1rem;
                 }}
+
+                .modal {{
+                    padding: 1rem;
+                }}
             }}
         </style>
     </head>
     <body>
         <header class="header">
-            <h1>Premium Gallery</h1>
+            <h1>{customer_name}'s Gallery</h1>
         </header>
         <div class="gallery-container">
 '''
@@ -154,18 +204,46 @@ def generate_html(customer_name, image_data):
     # Loop through images and add them to the gallery
     for url, time, _ in image_data:
         html_content += f'''
-            <div class="gallery-item">
-                <img src="{url}" alt="Gallery image">
-                <p>Uploaded on: {time}</p>
+            <div class="gallery-item" onclick="openModal('{url}')">
+                <img src="{url}" alt="Gallery image" loading="lazy">
+                <div class="metadata">
+                    <p>Uploaded on: {time}</p>
+                </div>
             </div>
 '''
     
-    # Close the HTML content
+    # Add modal and close the HTML content
     html_content += '''
+        </div>
+        <div id="imageModal" class="modal" onclick="closeModal()">
+            <span class="modal-close">&times;</span>
+            <img class="modal-content" id="modalImage">
         </div>
         <footer>
             <p>Powered by <span class="footer-logo">Firebase Gallery</span></p>
         </footer>
+        <script>
+            function openModal(imageSrc) {
+                const modal = document.getElementById('imageModal');
+                const modalImg = document.getElementById('modalImage');
+                modal.style.display = 'flex';
+                modalImg.src = imageSrc;
+                document.body.style.overflow = 'hidden';
+            }
+
+            function closeModal() {
+                const modal = document.getElementById('imageModal');
+                modal.style.display = 'none';
+                document.body.style.overflow = 'auto';
+            }
+
+            // Close modal with Escape key
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    closeModal();
+                }
+            });
+        </script>
     </body>
     </html>
     '''
@@ -175,7 +253,7 @@ def generate_html(customer_name, image_data):
     public_folder_path = os.path.join(current_dir, "public", f"{customer_name}_gallery.html")
 
     # Save the HTML file
-    with open(public_folder_path, 'w') as f:
+    with open(public_folder_path, 'w', encoding='utf-8') as f:
         f.write(html_content)
 
     print(f"Gallery HTML for {customer_name} created. You can view it at 'public/{customer_name}_gallery.html'.")
