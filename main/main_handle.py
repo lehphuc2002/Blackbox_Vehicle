@@ -4,14 +4,15 @@ from handle.rfid_handle import RFIDHandler
 from handle.sensors_handle import SensorHandler
 from iot.mqtt.publish import MQTTClient 
 from handle.camera_gstreamer import initialize_camera
-
+from handle.record_handle import RecordHandler
 
 def main():
     # Initialize sensor, MQTT, RFID, and TFT handlers
     mqtt_client = MQTTClient('CAR2_TOKEN')  # Initialize MQTT client with token
     sensor_handler = SensorHandler(mqtt_client)  # Initialize sensor handler
     rfid_handler = RFIDHandler(mqtt_client)  # Initialize RFID handler
-    video_streamer = initialize_camera(mqtt_client)
+    record_handler = RecordHandler()
+    video_streamer = initialize_camera(mqtt_client, record_handler)
 
     try:
         # Create and start threads for GPS, accelerometer, and RFID handling

@@ -51,6 +51,12 @@
             border-radius: 10px;
             padding: 20px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+
+            width: 100%;
+            height: calc(100vh - 200px); /* Adjust height based on viewport */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
         .video-feed {
@@ -63,6 +69,23 @@
             display: block;
             background-color: #000;
             object-fit: cover;
+
+            max-height: calc(100vh - 300px); /* Maximum height */
+        }
+
+        /* Add these new styles for fullscreen mode */
+        .video-feed:fullscreen {
+            width: 100vw;
+            height: 100vh;
+            object-fit: contain;
+            background: black;
+        }
+
+        .video-feed:-webkit-full-screen {
+            width: 100vw;
+            height: 100vh;
+            object-fit: contain;
+            background: black;
         }
 
         .controls {
@@ -108,9 +131,20 @@
             color: var(--error-color);
         }
 
+        /* Adjust media queries for better responsiveness */
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
+            }
+
+            .stream-container {
+                height: calc(100vh - 150px);
+                padding: 10px;
+            }
+
+            .video-feed {
+                height: calc(100% - 150px);
+                max-height: calc(100vh - 250px);
             }
 
             h1 {
@@ -120,11 +154,13 @@
             .controls {
                 flex-direction: column;
                 align-items: center;
+                margin-top: 10px;
             }
 
             .btn {
                 width: 100%;
                 max-width: 200px;
+                margin: 5px 0;
             }
         }
     </style>

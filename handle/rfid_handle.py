@@ -140,7 +140,6 @@ class RFIDHandler:
                       else f"Failed with error code: {ret.rc}")
             else:
                 self.data = {'name': "None", 'phone_number': "None"}
-                print("heheheeh")
                 self.tft_handler.display_user_info(self.data)
                 # Publish user info to MQTT
                 payload = self.mqtt_client.create_payload_user_info(self.data)
