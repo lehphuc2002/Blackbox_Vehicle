@@ -22,16 +22,20 @@ INTERVAL = 3
 # PORT = 1883
 # INTERVAL = 3
 
-# BROKER = '192.168.1.108'
+# BROKER = '192.168.1.85'
 # PORT = 1883
 # INTERVAL = 3
 
-# BROKER = '192.168.31.222'
+# BROKER = '192.168.31.228'
 # PORT = 1883
 # INTERVAL = 3
 
 # BROKER = '0.tcp.ap.ngrok.io'
 # PORT = 18361
+# INTERVAL = 3
+
+# BROKER = 'f7203bb08fbe0f4761e13ae31b373e28.serveo.net'
+# PORT = 443  # Serveo supports SSL
 # INTERVAL = 3
 
 class MQTTClient:

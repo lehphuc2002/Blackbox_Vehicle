@@ -1,7 +1,7 @@
 import pyrebase
 import os
 from datetime import datetime
-from html_generator import generate_html
+from .html_generator import generate_html
 
 MAX_IMAGES = 4  # Maximum number of images to keep
 

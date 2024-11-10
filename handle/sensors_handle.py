@@ -4,8 +4,8 @@ import time
 import math
 import paho.mqtt.client as paho
 
-from sensors.Temp_DS18B20.DS18B20 import read_temp  # Ensure temperature reading function is available
-# Ensure to import your BNO055 and GPS reader classes/modules if they're not already defined*
+from sensors.Temp_DS18B20.DS18B20 import read_temp  
+
 
 class SensorHandler:
     def __init__(self, mqtt_client):
