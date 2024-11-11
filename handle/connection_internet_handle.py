@@ -1,4 +1,4 @@
-# connection_handler.py
+# connection_internet_handle.py
 import threading
 import time
 import subprocess
@@ -27,6 +27,7 @@ def monitor_connection():
 
 def get_connection_status():
     """Return the current connection status."""
+    print(f"Connection status is {connection_status}")
     return connection_status
 
 # Start the connection monitor thread when the module is imported

@@ -12,7 +12,7 @@ def draw_tft(text_name, text_phone):
     # Initialize SPI and the display
     spi = busio.SPI(board.SCK, MOSI=board.MOSI)
     dc = digitalio.DigitalInOut(board.D6)  # Data/command
-    cs = digitalio.DigitalInOut(board.CE0)  # Chip select
+    cs = digitalio.DigitalInOut(board.CE1)  # Chip select
     reset = digitalio.DigitalInOut(board.D5)  # Reset
     display = adafruit_pcd8544.PCD8544(spi, dc, cs, reset)
 

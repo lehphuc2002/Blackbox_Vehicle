@@ -70,9 +70,9 @@ class CameraStream:
         self.thread.daemon = True
         self.thread.start()
         
-        self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
-        self.simulate_velocity_thread.daemon = True
-        self.simulate_velocity_thread.start()
+        # self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
+        # self.simulate_velocity_thread.daemon = True
+        # self.simulate_velocity_thread.start()
         
         self.keyboard_thread = threading.Thread(target=self._keyboard_control)
         self.keyboard_thread.daemon = True
@@ -210,7 +210,6 @@ class CameraStream:
                         if time.time() - self.recording_start_time >= 20:
                             self.recording_triggered = False
                             self.record_handler.stop_recording()
-                            
             time.sleep(1/self.fps)
     
     def add_timestamp_to_frame(self, frame):

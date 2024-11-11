@@ -18,7 +18,6 @@ class RecordHandler:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_path = os.path.join(self.output_dir, f'output_{timestamp}.avi')
             self.writer = cv2.VideoWriter(output_path, self.fourcc, self.fps, (w, h))
-            print("HEHEHEHE")
             self.recording = True
             print(f"Started recording to {output_path}")
 
