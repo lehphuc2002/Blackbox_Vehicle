@@ -210,8 +210,7 @@ class CameraStream:
                         if time.time() - self.recording_start_time >= 20:
                             self.recording_triggered = False
                             self.record_handler.stop_recording()
-                            
-            # time.sleep(1/self.fps)
+            time.sleep(1/self.fps)
     
     def add_timestamp_to_frame(self, frame):
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
