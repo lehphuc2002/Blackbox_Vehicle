@@ -129,11 +129,11 @@ class SensorHandler:
         self.publisher_thread = threading.Thread(target=self._publish_buffered_data, daemon=True)
         self.publisher_thread.start()
         
-        self.acc_threshold = 0.1  # Minimum acceleration to consider (m/s²)
-        self.velocity_decay = 0.95  # Velocity decay factor
+        self.acc_threshold = 0.1  # Ignore very small accelerations below 0.1 m/s²
+        self.velocity_decay = 0.95  # Reduce velocity by 5% each iteration
         self.zero_velocity_threshold = 0.1  # Threshold to reset velocity to zero
-        self.acc_window_size = 5
-        self.acc_window = {'x': [], 'y': [], 'z': []}
+        self.acc_window_size = 5 # Keep track of last 5 acceleration readings
+        self.acc_window = {'x': [], 'y': [], 'z': []} # Store acceleration history
         
         self.accel_thread = threading.Thread(target=self.bno055.read_accelerometer_thread, daemon=True)
         self.linear_accel_thread = threading.Thread(target=self.bno055.read_linear_accelerometer_thread, daemon=True)
@@ -172,6 +172,7 @@ class SensorHandler:
             time.sleep(5)  # Check every 5 seconds
             
     def moving_average(self, values):
+        """Takes a list of values and returns their average. It helps smooth out noisy acceleration readings."""
         if not values:
             return 0
         return sum(values) / len(values)
@@ -184,18 +185,18 @@ class SensorHandler:
             print("Accelerometer:", ax, ay, az)
             print("Linear Accelerometer:", lax, lay, laz)
 
-            # Update acceleration window
+            # Store recent acceleration readings
             self.acc_window['x'].append(lax)
             self.acc_window['y'].append(lay)
             self.acc_window['z'].append(laz)
             
-            # Keep window size fixed
+            # Keep only the last 5 readings
             if len(self.acc_window['x']) > self.acc_window_size:
                 self.acc_window['x'].pop(0)
                 self.acc_window['y'].pop(0)
                 self.acc_window['z'].pop(0)
                 
-            # Calculate smoothed acceleration
+            # Calculate average acceleration from recent readings
             smooth_ax = self.moving_average(self.acc_window['x'])
             smooth_ay = self.moving_average(self.acc_window['y'])
             smooth_az = self.moving_average(self.acc_window['z'])
@@ -204,7 +205,7 @@ class SensorHandler:
             dt = current_time - self.last_send_time
             self.last_send_time = current_time
             
-            # Apply threshold to acceleration
+            # If acceleration is very small, treat it as zero
             smooth_ax = 0 if abs(smooth_ax) < self.acc_threshold else smooth_ax
             smooth_ay = 0 if abs(smooth_ay) < self.acc_threshold else smooth_ay
             smooth_az = 0 if abs(smooth_az) < self.acc_threshold else smooth_az
@@ -226,6 +227,40 @@ class SensorHandler:
                 self.vy = 0
             if abs(self.vz) < self.zero_velocity_threshold:
                 self.vz = 0
+                
+            ######################## Example ########################
+            """
+            Let's say sensor reads these accelerations:
+            Reading 1: 0.03 m/s²
+            Reading 2: -0.02 m/s²
+            Reading 3: 0.04 m/s²
+            Reading 4: 0.01 m/s²
+            Reading 5: -0.03 m/s²
+            The moving average would be: (0.03 - 0.02 + 0.04 + 0.01 - 0.03) / 5 = 0.006 m/s²
+            Since 0.006 is less than threshold (0.1), it gets set to 0
+            This prevents tiny readings from affecting the velocity.
+            """
+            
+            """ 
+            WITHOUT DECAY
+            Starting velocity = 0 m/s
+            Reading tiny acceleration = 0.01 m/s²
+
+            After 1 second: v = 0 + 0.01 = 0.01 m/s
+            After 2 seconds: v = 0.01 + 0.01 = 0.02 m/s
+            After 3 seconds: v = 0.02 + 0.01 = 0.03 m/s
+            ...keeps increasing forever
+            
+            WITH DECAY
+            Starting velocity = 0 m/s
+            Reading tiny acceleration = 0.01 m/s²
+
+            After 1 second: v = (0 + 0.01) * 0.95 = 0.0095 m/s
+            After 2 seconds: v = (0.0095 + 0.01) * 0.95 = 0.0185 m/s
+            After 3 seconds: v = (0.0185 + 0.01) * 0.95 = 0.027 m/s
+            Eventually stabilizes instead of increasing forever
+            """
+            ######################## End Example ########################
             
             velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
             print("Velocity real is:", velocity)
