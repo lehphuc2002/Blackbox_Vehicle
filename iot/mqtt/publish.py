@@ -13,7 +13,6 @@ ACCESS_TOKENS = {
 	'CAR3': 'CAR3_TOKEN',  # Tesla
 }
 
-# Update your broker and port settings
 BROKER = '10.0.99.11'
 PORT = 1883
 INTERVAL = 3
@@ -26,7 +25,7 @@ INTERVAL = 3
 # PORT = 1883
 # INTERVAL = 3
 
-# BROKER = '192.168.31.228'
+# BROKER = '192.168.31.222'
 # PORT = 1883
 # INTERVAL = 3
 
@@ -41,10 +40,11 @@ INTERVAL = 3
 class MQTTClient:
 	_instance = None  # Singleton instance
 
-	def __new__(cls, token):
+	def __new__(cls, token, connection_handler):
 		if cls._instance is None:
 			cls._instance = super(MQTTClient, cls).__new__(cls)
 			cls._instance.client = paho.Client()
+			cls._instance.connection_handler = connection_handler  # Store connection handler
 			cls._instance.init_client(token)
 		return cls._instance
 
@@ -52,6 +52,7 @@ class MQTTClient:
 		self.client.on_message = self.on_message
 		self.client.on_publish = self.on_publish
 		self.client.on_connect = self.on_connect
+		# self.client.on_disconnect = self.on_disconnect  # Add on_disconnect callback
 		self.client.username_pw_set(token)
 
 		# Set car type and license plates based on the token
@@ -66,10 +67,13 @@ class MQTTClient:
 			self.license_plates = "60D-12345"
 
 		try:
-			self.client.connect(BROKER, PORT, keepalive=60)
-			self.client.loop_start()
+			if self.connection_handler.get_connection_status():
+				self.client.connect(BROKER, PORT, keepalive=60)
+				self.client.loop_start()
+			else:
+				print("No internet connection. Cannot connect to MQTT Broker.")
 		except Exception as e:
-			print(f"Could not connect to MQTT Broker. Error: {e}")
+			print(f"Could not connect to MQTT Broker. Error: {e}. Check your ThingsBoard IP.")
 			exit()
 
 	def on_publish(self, client, userdata, result):

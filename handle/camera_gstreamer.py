@@ -70,9 +70,9 @@ class CameraStream:
         self.thread.daemon = True
         self.thread.start()
         
-        self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
-        self.simulate_velocity_thread.daemon = True
-        self.simulate_velocity_thread.start()
+        # self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
+        # self.simulate_velocity_thread.daemon = True
+        # self.simulate_velocity_thread.start()
         
         self.keyboard_thread = threading.Thread(target=self._keyboard_control)
         self.keyboard_thread.daemon = True
@@ -138,30 +138,30 @@ class CameraStream:
     
     def capture_and_save_image(self):
         """Capture and save image when velocity threshold is exceeded, then upload."""
-        try:
-            with frame_lock:
-                if self.frame_buffer:
-                    # Get the latest frame from the deque (buffer)
-                    frame = self.frame_buffer[-1]
+        # try:
+        #     with frame_lock:
+        #         if self.frame_buffer:
+        #             # Get the latest frame from the deque (buffer)
+        #             frame = self.frame_buffer[-1]
                     
-                    # Generate filename with timestamp and velocity
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    filename = f'image_{timestamp}_speed_{self.current_velocity:.1f}.jpg'
-                    filepath = os.path.join(self.save_dir, filename)
+        #             # Generate filename with timestamp and velocity
+        #             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        #             filename = f'image_{timestamp}_speed_{self.current_velocity:.1f}.jpg'
+        #             filepath = os.path.join(self.save_dir, filename)
                     
-                    # Save image
-                    cv2.imwrite(filepath, frame)
-                    print(f"Captured image: {filepath}")
+        #             # Save image
+        #             cv2.imwrite(filepath, frame)
+        #             print(f"Captured image: {filepath}")
                     
-                    # Call the upload function
-                    try:
-                        upload_images_and_generate_html()
-                        print("Successfully uploaded to Firebase")
-                    except Exception as e:
-                        print(f"Error uploading to Firebase: {str(e)}")
+        #             # Call the upload function
+        #             try:
+        #                 upload_images_and_generate_html()
+        #                 print("Successfully uploaded to Firebase")
+        #             except Exception as e:
+        #                 print(f"Error uploading to Firebase: {str(e)}")
 
-        except Exception as e:
-            print(f"Error capturing image: {str(e)}")
+        # except Exception as e:
+        #     print(f"Error capturing image: {str(e)}")
 
     # def _capture_loop(self):
     #     while self.stream_active:
