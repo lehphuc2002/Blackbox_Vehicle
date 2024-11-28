@@ -4,13 +4,14 @@ from datetime import datetime
 import os
 
 class RecordHandler:
-    def __init__(self, output_dir="/home/pi/Thesis/handle", fps=20):
-        self.output_dir = output_dir
+    def __init__(self, fps=20):
+        base_dir = os.path.dirname(os.path.abspath(__file__))  # Path of current script
+        self.output_dir = os.path.join(base_dir, "record_video")
         self.fps = fps
         self.fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         self.writer = None
         self.recording = False
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(self.output_dir, exist_ok=True)
 
     def start_recording(self, frame):
         if not self.recording:

@@ -2,10 +2,11 @@ import threading
 import time
 from handle.rfid_handle import RFIDHandler
 from handle.sensors_handle import SensorHandler
+from handle.state_motion_handle import MotionStateHandler
 from iot.mqtt.publish import MQTTClient 
 from handle.camera_gstreamer import initialize_camera
 from handle.record_handle import RecordHandler
-import handle.connection_internet_handle as conn_handle
+import handle.connection_internet_handle as conn_handle 
 
 def main():
     connection_monitor_thread = threading.Thread(target=conn_handle.monitor_connection, daemon=True)
@@ -21,6 +22,7 @@ def main():
     rfid_handler = RFIDHandler(mqtt_client)  # Initialize RFID handler
     record_handler = RecordHandler()
     video_streamer = initialize_camera(mqtt_client, record_handler)
+    motion_state_handler = MotionStateHandler(sensor_handler)
 
     try:
         # Create and start threads for GPS, accelerometer, and RFID handling
@@ -64,6 +66,7 @@ def main():
         
         # Clean up resources for each handler
         sensor_handler.cleanup()
+        motion_state_handler.cleanup()
         rfid_thread.join()  # Ensure RFID thread completes before exit
         temp_thread.join()  # Ensure temperature thread completes
         video_thread.join() # Ensure video thread completes

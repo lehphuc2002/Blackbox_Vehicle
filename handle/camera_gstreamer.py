@@ -70,6 +70,18 @@ class CameraStream:
         self.thread.daemon = True
         self.thread.start()
         
+        # Add recording queue
+        self.recording_queue = deque()
+        
+        # Modified recording state variables
+        self.recording_triggered = False
+        self.recording_start_time = None
+        self.post_trigger_duration = 20  # seconds after trigger
+        
+        self.thread = threading.Thread(target=self._recording_loop)
+        self.thread.daemon = True
+        self.thread.start()
+        
         # self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
         # self.simulate_velocity_thread.daemon = True
         # self.simulate_velocity_thread.start()
@@ -178,6 +190,7 @@ class CameraStream:
                         
     #         time.sleep(1/30)
     def _capture_loop(self):
+        """Capture frames and manage the pre-trigger buffer."""
         while self.stream_active:
             if self.cap.isOpened():
                 ret, frame = self.cap.read()
@@ -185,33 +198,53 @@ class CameraStream:
                     # Add timestamp to frame
                     frame_with_timestamp = self.add_timestamp_to_frame(frame)
                     
-                    # Store frame in circular buffer
+                    # Store frame in the pre-trigger circular buffer
                     self.frame_buffer.append(frame_with_timestamp.copy())
                     
-                    # Update JPEG buffer for streaming
+                    # Update JPEG buffer for live streaming
                     with frame_lock:
                         _, buffer = cv2.imencode('.jpg', frame_with_timestamp)
                         self.frame_buffer_jpg = buffer.tobytes()
                     
-                    # Handle recording if triggered
+                    # If recording is triggered, add frame to the recording queue
                     if self.recording_triggered:
-                        if not self.record_handler.is_recording():
-                            print("STARTING RECORDING...")
-                            # Start new recording and write buffered frames
-                            self.record_handler.start_recording(frame_with_timestamp)
-                            for buffered_frame in list(self.frame_buffer)[-self.fps*10:]:
-                                self.record_handler.add_frame_to_record(buffered_frame)
-                            self.recording_start_time = time.time()
-                        
-                        # Add current frame to recording
-                        self.record_handler.add_frame_to_record(frame_with_timestamp)
-                        
-                        # Check recording duration
-                        if time.time() - self.recording_start_time >= 20:
-                            self.recording_triggered = False
-                            self.record_handler.stop_recording()
+                        self.recording_queue.append(frame_with_timestamp)
             time.sleep(1/self.fps)
-    
+
+    def _recording_loop(self):
+        """Handle recording logic including pre-trigger and post-trigger frames."""
+        while self.stream_active:
+            if self.recording_triggered and not self.record_handler.is_recording():
+                print("Starting recording with pre-trigger buffer...")
+                self.recording_start_time = time.time()
+
+                # Write pre-trigger frames to the recording
+                pre_trigger_frames = list(self.frame_buffer)  # Get all frames from buffer (20 seconds)
+                if pre_trigger_frames:
+                    self.record_handler.start_recording(pre_trigger_frames[0])  # Start with the first frame
+                    for frame in pre_trigger_frames:
+                        self.record_handler.add_frame_to_record(frame)
+
+            # Write frames from the recording queue
+            while self.recording_queue and self.record_handler.is_recording():
+                frame = self.recording_queue.popleft()
+                self.record_handler.add_frame_to_record(frame)
+                
+                # Add a delay to maintain FPS consistency
+                time.sleep(1 / self.fps)  # Sleep to match frame rate
+
+            # Check if post-trigger duration has elapsed
+            if self.recording_triggered and self.recording_start_time:
+                elapsed_time = time.time() - self.recording_start_time
+                if elapsed_time >= 20.0:  # 20 seconds post-trigger
+                    print("Stopping recording after post-trigger duration...")
+                    self.recording_triggered = False
+                    self.recording_start_time = None
+                    self.record_handler.stop_recording()
+                    self.recording_queue.clear()
+
+            time.sleep(0.01)
+        
     def add_timestamp_to_frame(self, frame):
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         h, w = frame.shape[:2]

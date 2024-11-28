@@ -21,7 +21,8 @@ INTERVAL = 3
 # PORT = 1883
 # INTERVAL = 3
 
-# BROKER = '192.168.1.85'
+# BROKER = '192.168.1.85'one of the most important partners of the aftermarket and independent workshops. What motivates us:
+
 # PORT = 1883
 # INTERVAL = 3
 

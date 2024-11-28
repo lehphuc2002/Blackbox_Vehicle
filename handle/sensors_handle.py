@@ -9,7 +9,8 @@ import paho.mqtt.client as paho
 import os
 
 from sensors.BNO055.BNO055_lib import BNO055Sensor 
-from sensors.Temp_DS18B20.DS18B20 import read_temp  
+from sensors.Temp_DS18B20.DS18B20 import read_temp
+from sensors.GPS.gps_simulator import GPSSimulator # Simulate GPS
 
 class SensorBuffer:
     def __init__(self, max_size=1000):
@@ -112,6 +113,7 @@ class SensorHandler:
         
         # Velocity components
         self.vx, self.vy, self.vz = 0, 0, 0
+        self.velocity = 0 
         
         # Accelerometer thresholds for accident detection
         self.ACC_X_THRESHOLD = 15
@@ -139,6 +141,10 @@ class SensorHandler:
         self.linear_accel_thread = threading.Thread(target=self.bno055.read_linear_accelerometer_thread, daemon=True)
         self.accel_thread.start()
         self.linear_accel_thread.start()
+        
+        self.gps = GPSSimulator()
+        self.gps_thread = threading.Thread(target=self.read_gps, daemon=True)
+        self.gps_thread.start()
 
     def _publish_data(self, payload, sensor_type, priority=False):
         """Attempt to publish data or buffer it if connection is lost"""
@@ -262,24 +268,25 @@ class SensorHandler:
             """
             ######################## End Example ########################
             
-            velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
-            print("Velocity real is:", velocity)
+            self.velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
+            print("Velocity real is:", self.velocity)
 
             # Check for potential accidents
             if any(abs(a) > threshold for a, threshold in zip((ax, ay, az),
                 (self.ACC_X_THRESHOLD, self.ACC_Y_THRESHOLD, self.ACC_Z_THRESHOLD))):
                 status = 'Warning Accident'
-                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, velocity, status)
+                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status)
                 self._publish_data(payload, "accelerometer", priority=True)
 
-            # Publish telemetry data every 3 seconds
-            if current_time - self.last_send_time >= 3:
+            # Publish telemetry data every ... seconds
+            if current_time - self.last_send_time >= 4:
                 status = "Normal"  # Replace with your status logic
-                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, velocity, status)
+                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status)
                 self._publish_data(payload, "accelerometer")
                 self.last_send_time = current_time  # Update last send time
 
-            threading.Event().wait(0.015)  # Short delay (~66Hz loop)
+            # threading.Event().wait(0.015)  # Short delay (~66Hz loop)
+            threading.Event().wait(5)
 
     def read_temperature(self):
         """Continuously read temperature data and publish it."""
@@ -308,16 +315,16 @@ class SensorHandler:
         self.gps.start()  # Make sure your GPS class has this method
         while self.running:
             try:
-                latitude, longitude = self.gps.get_current_location()
-                payload = self.mqtt_client.create_payload_gps(longitude, latitude)
+                self.latitude, self.longitude = self.gps.get_current_location()
+                payload = self.mqtt_client.create_payload_gps(self.longitude, self.latitude)
                 # ret = self.mqtt_client.publish(payload)  # Publish GPS data
                 # print("GPS data published successfully" if ret.rc == paho.MQTT_ERR_SUCCESS 
                 #           else f"Failed with error code: {ret.rc}")
                 self._publish_data(payload, "gps")
+                print(f"GPS - Latitude: {self.latitude}, Longitude: {self.longitude}")
             except Exception as e:
                 print(f"Error reading GPS: {e}")
-            print(f"Latitude: {latitude}, Longitude: {longitude}")
-            threading.Event().wait(2)  # Wait 2 seconds between GPS readings
+            threading.Event().wait(3)
 
     def cleanup(self):
         """Clean up and stop sensors."""
