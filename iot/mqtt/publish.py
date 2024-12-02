@@ -13,7 +13,7 @@ ACCESS_TOKENS = {
 	'CAR3': 'CAR3_TOKEN',  # Tesla
 }
 
-BROKER = '10.0.99.11'
+BROKER = '192.168.1.16'
 PORT = 1883
 INTERVAL = 3
 
@@ -21,8 +21,7 @@ INTERVAL = 3
 # PORT = 1883
 # INTERVAL = 3
 
-# BROKER = '192.168.1.85'one of the most important partners of the aftermarket and independent workshops. What motivates us:
-
+# BROKER = '192.168.1.85'
 # PORT = 1883
 # INTERVAL = 3
 
@@ -155,8 +154,11 @@ class MQTTClient:
 	def get_speed(self):
 		return round(rnd.uniform(20, 120), 2)
 
-	def create_payload_URL_camera(self, url):
-		return json.dumps({'URL Camera': url})
+	def create_payload_URL_camera(self, url, link_local_streaming):
+		return json.dumps({
+      		'URL Camera ': url,
+			'URL Stream' : link_local_streaming
+        })
 
 	# Keep all original payload creation functions
 	def create_payload_motion_data(self, ax, ay, az, speed, status):

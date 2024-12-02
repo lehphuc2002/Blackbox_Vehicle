@@ -33,6 +33,8 @@ class CameraStream:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.cap.set(cv2.CAP_PROP_FPS, 20)
+        self.count = 0
+        self.link_local_streaming = "http://127.0.0.1:5001"
         
         # Buffer setup
         self.fps = 20
@@ -361,12 +363,14 @@ class CameraStream:
                             tunnel_url = url_match.group(0)
                             print(f"Tunnel URL: {tunnel_url}")
                             # Push Serveo URL to MQTT
-                            payload = self.mqtt_client.create_payload_URL_camera(tunnel_url)
-                            ret = self.mqtt_client.publish(payload)
-                            if ret.rc == paho.MQTT_ERR_SUCCESS:
-                                print("URL published successfully")
-                            else:
-                                print(f"Failed to publish URL, error code: {ret.rc}")
+                            if self.count == 0:
+                                payload = self.mqtt_client.create_payload_URL_camera(tunnel_url, self.link_local_streaming)
+                                ret = self.mqtt_client.publish(payload)
+                                if ret.rc == paho.MQTT_ERR_SUCCESS:
+                                    print("URL published successfully")
+                                    self.count = 1
+                                else:
+                                    print(f"Failed to publish URL, error code: {ret.rc}")
             except Exception as e:
                 print(f"Error reading output: {e}", flush=True)
             finally:
