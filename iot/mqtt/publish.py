@@ -159,6 +159,11 @@ class MQTTClient:
       		'URL Camera ': url,
 			'URL Stream' : link_local_streaming
         })
+  
+	def create_payload_accident_signal(self, accident_signal):
+		return json.dumps({
+			'accident': accident_signal,
+		})
 
 	# Keep all original payload creation functions
 	def create_payload_motion_data(self, ax, ay, az, speed, status):

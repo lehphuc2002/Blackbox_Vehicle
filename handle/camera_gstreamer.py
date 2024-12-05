@@ -1,3 +1,4 @@
+# Thesis/handle/camera_gstreamer.py
 import cv2
 from flask import Flask, Response, render_template, jsonify
 import os
@@ -15,6 +16,12 @@ import numpy as np
 import random
 from iot.firebase.push_image import upload_images_and_generate_html
 from handle.record_handle import RecordHandler
+import smtplib
+from email.message import EmailMessage
+from handle.email_config import SMTP_SERVER, SMTP_PORT, SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL
+from handle.sensors_handle import SensorHandler  # Import your SensorHandler class
+
+
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -26,7 +33,7 @@ active_viewers = set()
 server_running = False
 
 class CameraStream:
-    def __init__(self, mqtt_client, record_handler):
+    def __init__(self, mqtt_client, record_handler, sensor_handler):
         self.cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
         if not self.cap.isOpened():
             raise RuntimeError("Failed to open camera")
@@ -35,6 +42,7 @@ class CameraStream:
         self.cap.set(cv2.CAP_PROP_FPS, 20)
         self.count = 0
         self.link_local_streaming = "http://127.0.0.1:5001"
+        self.accident_signal = 0
         
         # Buffer setup
         self.fps = 20
@@ -91,6 +99,9 @@ class CameraStream:
         self.keyboard_thread = threading.Thread(target=self._keyboard_control)
         self.keyboard_thread.daemon = True
         self.keyboard_thread.start()
+        
+        self.sensor_handler = sensor_handler
+        self.gps_data = "Unknown"
         
         self.start_cloudflared_tunnel()
 
@@ -298,6 +309,90 @@ class CameraStream:
 
         return frame
         
+    def send_alert_email(self):
+        """Prepare email content and return the message object"""
+        msg = EmailMessage()
+        
+        latitude = getattr(self.sensor_handler, 'latitude', 'N/A')
+        longitude = getattr(self.sensor_handler, 'longitude', 'N/A')
+        self.system_id = "Mercedes C300"
+        
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif;">
+            <div style="padding: 20px; background-color: #f8f8f8;">
+                <div style="background-color: #ff0000; color: white; padding: 10px; text-align: center;">
+                    <h2 style="margin: 0;">⚠️ CRITICAL ALERT: ACCIDENT DETECTED ⚠️</h2>
+                </div>
+                
+                <div style="background-color: white; padding: 20px; margin-top: 20px;">
+                    <h3>Emergency Response Required</h3>
+                    <p><strong>Incident Details:</strong></p>
+                    <ul>
+                        <li>Time of Detection: {self.get_current_time()}</li>
+                        <li>System ID: {self.system_id}</li>
+                        <li>Location: Latitude: {latitude}, Longitude: {longitude}</li>
+                        <li>Alert Level: HIGH PRIORITY</li>
+                    </ul>
+                    
+                    <p style="color: #ff0000;"><strong>Immediate action required.</strong></p>
+                    
+                    <div style="background-color: #f0f0f0; padding: 10px; margin-top: 20px;">
+                        <p style="margin: 0;"><small>This is an automated emergency alert. 
+                        Please do not reply to this email. If this is an emergency, 
+                        please contact emergency services immediately.</small></p>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px; font-size: 12px; color: #666;">
+                    <p>Confidential: This message contains sensitive information and is intended 
+                    for authorized personnel only.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        plain_text = f"""
+        CRITICAL ALERT: ACCIDENT DETECTED
+        Emergency Response Required
+        
+        Time of Detection: {self.get_current_time()}
+        System ID: {self.system_id}
+        Location: Latitude: {latitude}, Longitude: {longitude}
+        Alert Level: HIGH PRIORITY
+        
+        IMMEDIATE ACTION REQUIRED
+        
+        This is an automated emergency alert. Please do not reply to this email.
+        If this is an emergency, please contact emergency services immediately.
+        """
+
+        msg.set_content(plain_text)
+        msg.add_alternative(html_content, subtype='html')
+        
+        msg['Subject'] = '🚨 CRITICAL ALERT: Accident Detected - Immediate Response Required'
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = RECIPIENT_EMAIL
+        msg['Priority'] = 'urgent'
+        
+        return msg
+
+    def send_email_thread(self, msg):
+        """Actually send the email in a separate thread"""
+        try:
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(SENDER_EMAIL, SENDER_PASSWORD)
+                server.send_message(msg)
+                print("[ALERT] Emergency notification email sent successfully")
+        except Exception as e:
+            print(f"[ERROR] Failed to send emergency alert email: {str(e)}")
+
+    def get_current_time(self):
+        """Get formatted current time."""
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     def trigger_recording(self):
         """Trigger recording with buffer"""
@@ -312,7 +407,30 @@ class CameraStream:
             key = input("Press 'q' to trigger recording (press 'exit' to quit): ").strip().lower()
             if key == 'q':
                 print("Keyboard 'q' pressed")
-                self.trigger_recording()
+                # self.trigger_recording()
+                
+                # Prepare email message
+                msg = self.send_alert_email()
+                # Start email sending in a separate thread
+                email_thread = threading.Thread(
+                    target=self.send_email_thread,
+                    args=(msg,),
+                    daemon=True
+                )
+                email_thread.start()
+                
+                self.accident_signal = 1
+                payload = self.mqtt_client.create_payload_accident_signal(self.accident_signal)
+                ret = self.mqtt_client.publish(payload)
+                if ret.rc == paho.MQTT_ERR_SUCCESS:
+                    print(f"Accident signal published successfully. Its value is {self.accident_signal}")
+                    self.accident_signal = 0
+                    payload = self.mqtt_client.create_payload_accident_signal(self.accident_signal) # send 0 to turn off accident signal
+                    ret = self.mqtt_client.publish(payload)
+                    print(f"Accident signal down published successfully. Its value is {self.accident_signal}")
+                else:
+                    print(f"Failed to publish accident signal, error code: {ret.rc}")
+                
             elif key == 'exit':
                 print("Exiting keyboard control")
                 self.stream_active = False
@@ -388,11 +506,11 @@ class CameraStream:
             server_running = True
             app.run(host="0.0.0.0", port=5000, threaded=True)
 
-def initialize_camera(mqtt_client, record_handler):
+def initialize_camera(mqtt_client, record_handler, sensor_handler):
     global camera
     if camera is not None:
         camera.stop()
-    camera = CameraStream(mqtt_client, record_handler)
+    camera = CameraStream(mqtt_client, record_handler, sensor_handler)
     return camera
 
 def generate_frames():
