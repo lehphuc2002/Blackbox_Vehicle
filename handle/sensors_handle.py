@@ -1,12 +1,17 @@
 # Thesis/handle/sensors_handle.py
+
 import threading
 import time
 import math
 import json
 import queue
 from datetime import datetime
-import paho.mqtt.client as paho
 import os
+import random
+
+from sensors.GPS.GPS_lib import GPSModule  # Adjust the path as necessary
+from geopy.geocoders import Nominatim
+from unidecode import unidecode
 
 from sensors.BNO055.BNO055_lib import BNO055Sensor 
 from sensors.Temp_DS18B20.DS18B20 import read_temp
@@ -100,17 +105,15 @@ class SensorBuffer:
                     print(f"Error clearing cache file: {e}")
 
 
+
 class SensorHandler:
-    def __init__(self, mqtt_client, connection_handler):
+    def __init__(self, firebaseclient, connection_handler):
         # Initialize BNO055 sensor (accelerometer)
         self.bno055 = BNO055Sensor()
-        
-        # Initialize GPS reader
-        # self.gps = GPSReader()  # Uncomment and implement this line
-        
+
         self.running = True  # Flag to control sensor reading loops
         self.last_send_time = time.time()  # Last telemetry send time
-        
+
         # Velocity components
         self.vx, self.vy, self.vz = 0, 0, 0
         self.velocity = 0 
@@ -120,25 +123,39 @@ class SensorHandler:
         self.ACC_Y_THRESHOLD = 7
         self.ACC_Z_THRESHOLD = 4
 
-        # Use the passed MQTT client instance
-        self.mqtt_client = mqtt_client
-        
+        # FirebaseClient and connection handler
+        self.firebaseclient = firebaseclient
         self.connection_handler = connection_handler
+
         self.sensor_buffer = SensorBuffer()
         self.sensor_buffer.load_cache()
+        
+        # Initialize GPS module
+        self.gps = GPSModule()
+        self.geolocator = Nominatim(user_agent="geoapi")
+
+        # Start GPS and accelerometer threads
+        self.gps_thread = threading.Thread(target=self.read_gps_data, daemon=True)
+        self.gps_thread.start()
 
         # Start data publishing thread
-        self.publisher_thread = threading.Thread(target=self._publish_buffered_data, daemon=True)
+        self.publisher_thread = threading.Thread(
+            target=self._publish_buffered_data, daemon=True
+        )
         self.publisher_thread.start()
-        
+
         self.acc_threshold = 0.1  # Ignore very small accelerations below 0.1 m/s²
         self.velocity_decay = 0.95  # Reduce velocity by 5% each iteration
         self.zero_velocity_threshold = 0.1  # Threshold to reset velocity to zero
-        self.acc_window_size = 5 # Keep track of last 5 acceleration readings
-        self.acc_window = {'x': [], 'y': [], 'z': []} # Store acceleration history
-        
-        self.accel_thread = threading.Thread(target=self.bno055.read_accelerometer_thread, daemon=True)
-        self.linear_accel_thread = threading.Thread(target=self.bno055.read_linear_accelerometer_thread, daemon=True)
+        self.acc_window_size = 5  # Keep track of last 5 acceleration readings
+        self.acc_window = {"x": [], "y": [], "z": []}  # Store acceleration history
+
+        self.accel_thread = threading.Thread(
+            target=self.bno055.read_accelerometer_thread, daemon=True
+        )
+        self.linear_accel_thread = threading.Thread(
+            target=self.bno055.read_linear_accelerometer_thread, daemon=True
+        )
         self.accel_thread.start()
         self.linear_accel_thread.start()
         
@@ -147,80 +164,94 @@ class SensorHandler:
         self.gps_thread.start()
 
     def _publish_data(self, payload, sensor_type, priority=False):
-        """Attempt to publish data or buffer it if connection is lost"""
-        if self.connection_handler.get_connection_status():
-            ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload)
-            if ret.rc == paho.MQTT_ERR_SUCCESS:
-                print(f"{sensor_type} data published successfully")
-                return True
-            else:
-                print(f"Failed to publish {sensor_type} data. Error code: {ret.rc}")
-                self.sensor_buffer.add_data(sensor_type, payload)
-                return False
-        else:
-            print(f"No connection. Buffering {sensor_type} data...")
+        """Attempt to publish data to Firebase or buffer it if connection is lost"""
+        try:
+            self.firebaseclient.publish(sensor_type, payload)
+            print(f"{sensor_type} data published to Firebase.")
+        except Exception as e:
+            print(f"Failed to publish {sensor_type} data to Firebase: {e}")
             self.sensor_buffer.add_data(sensor_type, payload)
-            return False
 
     def _publish_buffered_data(self):
         """Continuously attempt to publish buffered data when connection is available"""
         while self.running:
-            if self.connection_handler.get_connection_status():
-                pending_data = self.sensor_buffer.get_pending_data()
-                for entry in pending_data:
-                    ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", entry['data'])
-                    if ret.rc == paho.MQTT_ERR_SUCCESS:
-                        print(f"Published buffered {entry['sensor_type']} data from {entry['timestamp']}")
-                    else:
-                        print(f"Re-buffering failed data: {entry}")
-                        # Put back in buffer if publish fails
-                        self.sensor_buffer.add_data(entry['sensor_type'], entry['data'])
+            pending_data = self.sensor_buffer.get_pending_data()
+            for entry in pending_data:
+                try:
+                    self.firebaseclient.publish(entry["sensor_type"], entry["data"])
+                    print(
+                        f"Published buffered {entry['sensor_type']} data from {entry['timestamp']}"
+                    )
+                except Exception as e:
+                    print(f"Failed to publish buffered data: {e}")
+                    self.sensor_buffer.add_data(entry["sensor_type"], entry["data"])
             time.sleep(5)  # Check every 5 seconds
-            
+
     def moving_average(self, values):
         """Takes a list of values and returns their average. It helps smooth out noisy acceleration readings."""
         if not values:
             return 0
         return sum(values) / len(values)
+        
+        
+    def read_gps_data(self):
+        """Continuously fetch GPS data and publish it to Firebase."""
+        self.gps.start()
+        while self.running:
+            try:
+                latitude, longitude = self.gps.get_location()
+                if latitude is not None and longitude is not None:
+                    # Fetch address details
+                    location = self.geolocator.reverse((latitude, longitude), language="en")
+                    address = location.address if location else "Unknown"
+                    address_no_accent = unidecode(address)
+
+                    velocity = self.gps.get_velocity()
+                    payload = {
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "address": address_no_accent,
+                        "velocity": velocity or 0,
+                    }
+                    self._publish_data(payload, "location")
+                else:
+                    print("Waiting for GPS data...")
+            except Exception as e:
+                print(f"Error reading GPS data: {e}")
+            time.sleep(1)  # Adjust polling interval as needed
 
     def read_accelerometer(self):
         """Read accelerometer data, update velocity, and publish telemetry."""
         while self.running:
             ax, ay, az = self.bno055.accel_data
             lax, lay, laz = self.bno055.linear_accel_data
-            print("Accelerometer:", ax, ay, az)
-            print("Linear Accelerometer:", lax, lay, laz)
 
             # Store recent acceleration readings
-            self.acc_window['x'].append(lax)
-            self.acc_window['y'].append(lay)
-            self.acc_window['z'].append(laz)
-            
+            self.acc_window["x"].append(lax)
+            self.acc_window["y"].append(lay)
+            self.acc_window["z"].append(laz)
+
             # Keep only the last 5 readings
-            if len(self.acc_window['x']) > self.acc_window_size:
-                self.acc_window['x'].pop(0)
-                self.acc_window['y'].pop(0)
-                self.acc_window['z'].pop(0)
-                
+            if len(self.acc_window["x"]) > self.acc_window_size:
+                self.acc_window["x"].pop(0)
+                self.acc_window["y"].pop(0)
+                self.acc_window["z"].pop(0)
+
             # Calculate average acceleration from recent readings
-            smooth_ax = self.moving_average(self.acc_window['x'])
-            smooth_ay = self.moving_average(self.acc_window['y'])
-            smooth_az = self.moving_average(self.acc_window['z'])
-            
+            smooth_ax = self.moving_average(self.acc_window["x"])
+            smooth_ay = self.moving_average(self.acc_window["y"])
+            smooth_az = self.moving_average(self.acc_window["z"])
+
             current_time = time.time()
             dt = current_time - self.last_send_time
             self.last_send_time = current_time
-            
+
             # If acceleration is very small, treat it as zero
             smooth_ax = 0 if abs(smooth_ax) < self.acc_threshold else smooth_ax
             smooth_ay = 0 if abs(smooth_ay) < self.acc_threshold else smooth_ay
             smooth_az = 0 if abs(smooth_az) < self.acc_threshold else smooth_az
+            az = round(random.uniform(-0.1, 0.1), 2)
 
-            # Update velocity
-            # self.vx += round(lax, 8) * dt
-            # self.vy += round(lay, 8) * dt
-            # self.vz += round(laz, 8) * dt
-            
             # Update velocity with decay
             self.vx = (self.vx + smooth_ax * dt) * self.velocity_decay
             self.vy = (self.vy + smooth_ay * dt) * self.velocity_decay
@@ -233,25 +264,9 @@ class SensorHandler:
                 self.vy = 0
             if abs(self.vz) < self.zero_velocity_threshold:
                 self.vz = 0
-                
-            ######################## Example ########################
-            """
-            Let's say sensor reads these accelerations:
-            Reading 1: 0.03 m/s²
-            Reading 2: -0.02 m/s²
-            Reading 3: 0.04 m/s²
-            Reading 4: 0.01 m/s²
-            Reading 5: -0.03 m/s²
-            The moving average would be: (0.03 - 0.02 + 0.04 + 0.01 - 0.03) / 5 = 0.006 m/s²
-            Since 0.006 is less than threshold (0.1), it gets set to 0
-            This prevents tiny readings from affecting the velocity.
-            """
-            
-            """ 
-            WITHOUT DECAY
-            Starting velocity = 0 m/s
-            Reading tiny acceleration = 0.01 m/s²
 
+            ######################## Start Example ########################
+            """
             After 1 second: v = 0 + 0.01 = 0.01 m/s
             After 2 seconds: v = 0.01 + 0.01 = 0.02 m/s
             After 3 seconds: v = 0.02 + 0.01 = 0.03 m/s
@@ -277,6 +292,8 @@ class SensorHandler:
                 status = 'Warning Accident'
                 payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status)
                 self._publish_data(payload, "accelerometer", priority=True)
+            payload = {"speed": self.velocity}
+            self._publish_data(payload, "speed", priority=True)
 
             # Publish telemetry data every ... seconds
             if current_time - self.last_send_time >= 4:
@@ -293,17 +310,11 @@ class SensorHandler:
         while self.running:
             try:
                 temp_c, temp_f = read_temp()  # Use the imported function
-                print(f'Temperature: {temp_c:.2f} °C, {temp_f:.2f} °F')
-                
-                # MQTT publish payload for temperature
-                payload = self.mqtt_client.create_payload_temp(temp_c)
-                # ret = self.mqtt_client.publish(payload)
-                # if ret.rc == paho.MQTT_ERR_SUCCESS:
-                #     print("Temperature data published successfully.")
-                # else:
-                #     print(f"Failed to publish temperature data. Error code: {ret.rc}")
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                data = {"timestamp": timestamp}
+                self._publish_data(data, "")
+                payload = {"temperature": temp_c}
                 self._publish_data(payload, "temperature")
-                
             except Exception as e:
                 print(f"Error reading temperature: {e}")
             
@@ -330,13 +341,8 @@ class SensorHandler:
         """Clean up and stop sensors."""
         self.running = False
         self.bno055.stop_threads()  # Stop accelerometer threads
+        self.gps.stop()  # Stop GPS threads
         self.accel_thread.join(timeout=1)
         self.linear_accel_thread.join(timeout=1)
-        
-        if hasattr(self, 'gps'):
-            self.gps.stop()  # Ensure the GPS is stopped properly
-            self.gps.destroy()  # Free GPS resources if applicable
-            print("Cleaned up GPS resources.")
-            
         self.publisher_thread.join(timeout=1)
         print("Sensor handler cleaned up")

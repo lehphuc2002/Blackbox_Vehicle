@@ -1,220 +1,200 @@
 import random as rnd
 import time
+import firebase_admin
+from firebase_admin import credentials, db
+from datetime import datetime, timedelta
 import json
-import os
-import subprocess
-import paho.mqtt.client as paho
-from datetime import datetime
 
 # Constants
 ACCESS_TOKENS = {
-	'CAR1': 'CAR1_TOKEN',  # Mercedes
-	'CAR2': 'CAR2_TOKEN',  # Toyota
-	'CAR3': 'CAR3_TOKEN',  # Tesla
+    "CAR1": "CAR1_TOKEN",  # Mercedes
+    "CAR2": "CAR2_TOKEN",  # Toyota
+    "CAR3": "CAR3_TOKEN",  # Tesla
 }
 
-BROKER = '192.168.1.16'
-PORT = 1883
-INTERVAL = 3
+TYPE_CAR = "Mercedes"
+LICENSE_PLATE = "60H1-47413"
 
-# BROKER = '192.168.1.160'
-# PORT = 1883
-# INTERVAL = 3
+# Firebase Initialization
+cred = credentials.Certificate(
+    "/home/pi/Documents/01_Thesis/01_project/Blackbox_Vehicle/blackboxvehicle-c345e-firebase-adminsdk-u58su-3da590c691.json"
+)  # Update with your service account path
+firebase_admin.initialize_app(
+    cred,
+    {
+        "databaseURL": "https://blackboxvehicle-c345e-default-rtdb.firebaseio.com/"  # Update with your Firebase Realtime Database URL
+    },
+)
 
-# BROKER = '192.168.1.85'
-# PORT = 1883
-# INTERVAL = 3
 
-# BROKER = '192.168.31.222'
-# PORT = 1883
-# INTERVAL = 3
+class FirebaseClient:
+    def __init__(self):
+        self.type_car = TYPE_CAR
+        self.license_plates = LICENSE_PLATE
 
-# BROKER = '0.tcp.ap.ngrok.io'
-# PORT = 18361
-# INTERVAL = 3
+        self.current_ref = db.reference(
+            f'/cars/{self.license_plates.replace("-", "_").upper()}'
+        )
+        self.logs_ref = db.reference(
+            f'/logs/{self.license_plates.replace("-", "_").upper()}'
+        )
 
-# BROKER = 'f7203bb08fbe0f4761e13ae31b373e28.serveo.net'
-# PORT = 443  # Serveo supports SSL
-# INTERVAL = 3
+    def publish(self, group_name, data):
+ 
+        ref = db.reference(f'/cars/{self.license_plates.replace("-", "_")}')
+        if not ref.get():
+            print(
+                f"License plate {self.license_plates} not found in Firebase. Waiting..."
+            )
+            return None
 
-class MQTTClient:
-	_instance = None  # Singleton instance
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
 
-	def __new__(cls, token, connection_handler):
-		if cls._instance is None:
-			cls._instance = super(MQTTClient, cls).__new__(cls)
-			cls._instance.client = paho.Client()
-			cls._instance.connection_handler = connection_handler  # Store connection handler
-			cls._instance.init_client(token)
-		return cls._instance
+        self.current_ref.update(data)
+        print(f"Current data updated in Firebase: {data}")
+        
+        if not group_name:
+            return
 
-	def init_client(self, token):
-		self.client.on_message = self.on_message
-		self.client.on_publish = self.on_publish
-		self.client.on_connect = self.on_connect
-		# self.client.on_disconnect = self.on_disconnect  # Add on_disconnect callback
-		self.client.username_pw_set(token)
+    
+        group_ref = self.logs_ref.child(group_name)
+        group_ref.child(timestamp).set(data)
+        print(f"Log saved for group '{group_name}' with timestamp: {timestamp}")
 
-		# Set car type and license plates based on the token
-		if token == ACCESS_TOKENS['CAR1']:
-			self.type_car = 'Mercedes'
-			self.license_plates = "59D6666"
-		elif token == ACCESS_TOKENS['CAR2']:
-			self.type_car = 'Toyota'
-			self.license_plates = "74D1-14515"
-		elif token == ACCESS_TOKENS['CAR3']:
-			self.type_car = 'Tesla'
-			self.license_plates = "60D-12345"
+  
+        self.cleanup_old_logs(group_ref)
 
-		try:
-			if self.connection_handler.get_connection_status():
-				self.client.connect(BROKER, PORT, keepalive=60)
-				self.client.loop_start()
-			else:
-				print("No internet connection. Cannot connect to MQTT Broker.")
-		except Exception as e:
-			print(f"Could not connect to MQTT Broker. Error: {e}. Check your ThingsBoard IP.")
-			exit()
+        return data
 
-	def on_publish(self, client, userdata, result):
-		print("Data published to ThingsBoard")
+    def cleanup_old_logs(self, group_ref):
+        """
+        Xóa các log cu hon 30 phút.
+        """
+        now = datetime.now()
+        thirty_minutes_ago = now - timedelta(seconds=60)
+        old_logs = group_ref.get()
+        if old_logs:
+            for key, _ in old_logs.items():
+                record_time = datetime.strptime(key, "%Y-%m-%d %H:%M:%S")
+                if record_time < thirty_minutes_ago:
+                    group_ref.child(key).delete()
 
-	def on_connect(self, client, userdata, flags, rc):
-		if rc == 0:
-			print("Connected to MQTT Broker!")
-			client.subscribe('v1/devices/me/rpc/response/+')
-		else:
-			print(f"Failed to connect, return code {rc}\n")
+    def create_payload(self, ax, ay, az, speed, status):
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        payload = {
+            "Accelerometer X": ax,
+            "Accelerometer Y": ay,
+            "Accelerometer Z": az,
+            "Speed": speed,
+            "Timestamp": timestamp,
+            "Longitude": 106.706718,
+            "Latitude": 10.825225,
+            "License plates": self.license_plates,
+            "Temperature": round(rnd.uniform(0, 50), 2),
+            "Status": status,
+            "Company": self.type_car,
+            "Camera Streaming": "https://www.youtube.com/",
+        }
+        return payload
+        
+        
+   	# Keep all original payload creation functions
+    def create_payload_motion_data(self, ax, ay, az, speed, status):
+        payload = {
+        'Accelerometer X': ax,
+        'Accelerometer Y': ay,
+        'Accelerometer Z': az,
+			  'Speed': speed,
+			  'Status': status
+		  }
+        return payload
+        
 
-	def on_message(self, client, userdata, msg):
-		print("Received response from ThingsBoard")
-		print("Message received:", msg.payload.decode())
-
-	def create_payload(self, ax, ay, az, speed, status):
-		now = datetime.now()
-		timestamp = now.strftime("%H:%M:%S:%f")[:-3]
-		payload = {
-			'Accelerometer X': ax,
-			'Accelerometer Y': ay,
-			'Accelerometer Z': az,
-			'Speed': speed,
-			'Timestamp': timestamp,
-			'Longitude': self.longitude_GPS,
-			'Latitude': self.latitude_GPS,
-			'License plates': self.license_plates,
-			'Status': status,
-			'Company': self.type_car
-		}
-		return json.dumps(payload)
-
-	def publish(self, payload):
-		ret = self.client.publish("v1/devices/me/telemetry", payload)
-		if ret.rc == paho.MQTT_ERR_SUCCESS:
-			print("Publish success")
-		else:
-			print(f"Publish failed with error code: {ret.rc}")
-		return ret  # Ensure to return the result
-
-	def send_data(self):
-		user = self.get_rfid_user()
-
-		try:
-			while True:
-				# Gather sensor data
-				ax, ay, az = self.get_accelerometer_data()
-				speed = self.get_speed()
-				status = 'Normal' if speed <= 90 else 'Over Speed'
-
-				# Create and publish the payload
-				payload = self.create_payload(ax, ay, az, speed, status)
-				self.publish(payload)
-
-				# Send data at intervals
-				time.sleep(INTERVAL)
-
-		except KeyboardInterrupt:
-			print("Disconnecting from MQTT Broker...")
-			self.client.disconnect()
-			self.client.loop_stop()
-			print("Disconnected")
-
-	def get_rfid_user(self):
-		return {
-			"name": "Le Huu Phuc",
-			"phone": rnd.choice(["+84776544745", "+84919555999"])
-		}
-
-	def get_accelerometer_data(self):
-		return (
-			round(rnd.uniform(0, 50), 2),  # Accelerometer X
-			round(rnd.uniform(0, 30), 2),  # Accelerometer Y
-			round(rnd.uniform(20, 120), 2)  # Accelerometer Z
-		)
-
-	def get_speed(self):
-		return round(rnd.uniform(20, 120), 2)
-
-	def create_payload_URL_camera(self, url, link_local_streaming):
-		return json.dumps({
+    def send_accelerometer_data(self):
+        data = {
+            "accleromentionX": round(rnd.uniform(0, 50), 2),
+            "accleromentionY": round(rnd.uniform(0, 30), 2),
+            "accleromentionZ": round(rnd.uniform(20, 120), 2),
+            "acclerorationLinear": round(rnd.uniform(0, 50), 2),
+        }
+        self.publish("accelerometer", data)
+    
+    def create_payload_URL_camera(self, url, link_local_streaming):
+        payload = {
       		'URL Camera ': url,
 			'URL Stream' : link_local_streaming
-        })
+		}
+        return payload
   
-	def create_payload_accident_signal(self, accident_signal):
-		return json.dumps({
-			'accident': accident_signal,
-		})
+    def create_payload_accident_signal(self, accident_signal):
+        payload = {
+      		'accident': accident_signal,
+		}
+        return payload
 
-	# Keep all original payload creation functions
-	def create_payload_motion_data(self, ax, ay, az, speed, status):
-		return json.dumps({
-			'Accelerometer X': ax,
-			'Accelerometer Y': ay,
-			'Accelerometer Z': az,
-			'Speed': speed,
-			'Status': status
-		})
+    def send_speed_data(self):
+        data = {"speed": round(rnd.uniform(20, 120), 2)}
+        self.publish("speed", data)
 
-	def create_payload_user_info(self, user):
-		return json.dumps({
-			'Name': user['name'],
-			'Phone number': user['phone_number']
-		})
+    def send_location_data(self):
 
-	def create_payload_accelerometer(self, ax, ay, az):
-		return json.dumps({
-			'Accelerometer X': ax,
-			'Accelerometer Y': ay,
-			'Accelerometer Z': az
-		})
+        data = {"longitude": 106.706718, "latitude": 10.825225}
+        self.publish("location", data)
 
-	def create_payload_speed(self, speed):
-		return json.dumps({'Speed': speed})
+    def send_temperature_data(self):
 
-	def create_payload_temp(self, temp):
-		return json.dumps({'Temperature': temp})
+        data = {"temperature": round(rnd.uniform(0, 50), 2)}
+        self.publish("temperature", data)
 
-	def create_payload_timestamp(self):
-		now = datetime.now()
-		timestamp = now.strftime("%H:%M:%S:%f")[:-3]
-		return json.dumps({'Timestamp': timestamp})
+    def send_status_data(self):
 
-	def create_payload_gps(self, longitude_GPS, latitude_GPS):
-		return json.dumps({
-			'Longitude': longitude_GPS,
-			'Latitude': latitude_GPS
-		})
+        speed = round(rnd.uniform(20, 120), 2)
+        status = "Normal" if speed <= 90 else "Over Speed"
+        data = {"status": status}
+        self.publish("status", data)
 
-	def create_payload_license_plates(self, license_plates):
-		return json.dumps({'License plates': license_plates})
+    def send_data(self):
+        try:
+            while True:
+                # Gather sensor data
+                ax, ay, az = self.get_accelerometer_data()
+                speed = self.get_speed()
+                status = "Normal" if speed <= 90 else "Over Speed"
 
-	def create_payload_status(self, status):
-		return json.dumps({'Status': status})
+                # Create payload
+                payload = self.create_payload(ax, ay, az, speed, status)
 
-	def create_payload_company(self, type_car):
-		return json.dumps({'Company': type_car})
+                # Publish to Firebase
+                self.publish(payload)
+
+        except KeyboardInterrupt:
+            print("Stopped sending data to Firebase.")
+
+
+    def get_accelerometer_data(self):
+        # Get sensor data (e.g., accelerometer readings)
+        ax = round(rnd.uniform(0, 50), 2)  # Accelerometer X
+        ay = round(rnd.uniform(0, 30), 2)  # Accelerometer Y
+        az = round(rnd.uniform(20, 120), 2)  # Accelerometer Z
+        return ax, ay, az
+
+    def get_speed(self):
+        # Get speed data
+        speed = round(rnd.uniform(20, 120), 2)
+        return speed
 
 
 if __name__ == "__main__":
-	client = MQTTClient(ACCESS_TOKENS['CAR2'])
-	client.send_data()
+    client = FirebaseClient()  # Bi?n s? xe
+    try:
+        while True:
+            client.send_accelerometer_data()
+            client.send_speed_data()
+            client.send_location_data()
+            client.send_temperature_data()
+            client.send_status_data()
+            time.sleep(5)  # G?i m?i giây
+    except KeyboardInterrupt:
+        print("Stopped.")

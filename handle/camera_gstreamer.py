@@ -7,14 +7,11 @@ import threading
 import time
 import subprocess
 import re
-import paho.mqtt.client as paho
-from iot.mqtt.publish import MQTTClient
+from iot.mqtt.publish import FirebaseClient
 from datetime import datetime
 from collections import deque
-from datetime import datetime
 import numpy as np
 import random
-from iot.firebase.push_image import upload_images_and_generate_html
 from handle.record_handle import RecordHandler
 import smtplib
 from email.message import EmailMessage
@@ -33,7 +30,7 @@ active_viewers = set()
 server_running = False
 
 class CameraStream:
-    def __init__(self, mqtt_client, record_handler, sensor_handler):
+    def __init__(self, firebaseclient, record_handler, sensor_handler):
         self.cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
         if not self.cap.isOpened():
             raise RuntimeError("Failed to open camera")
@@ -56,7 +53,7 @@ class CameraStream:
         
         # self.frame_buffer = None
         self.stream_active = True
-        self.mqtt_client = mqtt_client
+        self.firebaseclient = firebaseclient
         self.record_handler = record_handler
         self.current_velocity = 0
         self.use_simulated_velocity = True
@@ -481,14 +478,9 @@ class CameraStream:
                             tunnel_url = url_match.group(0)
                             print(f"Tunnel URL: {tunnel_url}")
                             # Push Serveo URL to MQTT
-                            if self.count == 0:
-                                payload = self.mqtt_client.create_payload_URL_camera(tunnel_url, self.link_local_streaming)
-                                ret = self.mqtt_client.publish(payload)
-                                if ret.rc == paho.MQTT_ERR_SUCCESS:
-                                    print("URL published successfully")
-                                    self.count = 1
-                                else:
-                                    print(f"Failed to publish URL, error code: {ret.rc}")
+                            payload = {'Link streaming': tunnel_url}
+                            self.firebaseclient.publish("Link streaming", payload)
+
             except Exception as e:
                 print(f"Error reading output: {e}", flush=True)
             finally:
@@ -506,11 +498,11 @@ class CameraStream:
             server_running = True
             app.run(host="0.0.0.0", port=5000, threaded=True)
 
-def initialize_camera(mqtt_client, record_handler, sensor_handler):
+def initialize_camera(firebaseclient, record_handler, sensor_handler):
     global camera
     if camera is not None:
         camera.stop()
-    camera = CameraStream(mqtt_client, record_handler, sensor_handler)
+    camera = CameraStream(firebaseclient, record_handler, sensor_handler)
     return camera
 
 def generate_frames():
@@ -549,7 +541,7 @@ def restart_stream():
 
     if camera:
         camera.stop()  # Stop the current stream
-        camera = initialize_camera(camera.mqtt_client, camera.record_handler)  # Re-initialize with same clients
+        camera = initialize_camera(camera.firebaseclient, camera.record_handler)  # Re-initialize with same clients
         return jsonify({"status": "Stream restarted"}), 200
     return jsonify({"error": "No active video stream"}), 500
 
@@ -572,8 +564,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 if __name__ == "__main__":
     try:
-        mqtt_client = MQTTClient()
-        camera = initialize_camera(mqtt_client, record_handler)
+        firebaseclient = FirebaseClient()
+        camera = initialize_camera(firebaseclient, record_handler)
         app.run(host="0.0.0.0", port=5000, threaded=True)
     finally:
         cleanup()

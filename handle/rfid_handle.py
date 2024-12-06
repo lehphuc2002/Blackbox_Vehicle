@@ -13,7 +13,6 @@ from digitalio import DigitalInOut
 from adafruit_pn532.i2c import PN532_I2C
 
 from handle.tft_handle import TFTHandler
-import paho.mqtt.client as paho
 
 class RFIDHandler:
     """Handles RFID reading, user data management, and interaction with TFT display and MQTT."""
@@ -27,7 +26,7 @@ class RFIDHandler:
         self.data = {'name': None, 'phone_number': None}
         self.first_time = 0
         self.stop_event = threading.Event()
-        self.tft_handler = TFTHandler()
+        #self.tft_handler = TFTHandler()
 
         # Use the passed MQTT client instance
         self.mqtt_client = mqtt_client
@@ -116,7 +115,8 @@ class RFIDHandler:
             self.first_time += 1
             print(f"No card detected. User data: Name: {self.data['name']}, Phone number: {self.data['phone_number']}")
             if self.first_time == 1:
-                self.tft_handler.display_user_info(self.data)
+              pass
+                #self.tft_handler.display_user_info(self.data)
 
     def handle_new_card(self, uid):
         """Handle actions when a new RFID card is detected."""
@@ -132,22 +132,17 @@ class RFIDHandler:
                 print(f"User information for UID {uid_hex}:")
                 print(f"Name: {self.data['name']}")
                 print(f"Phone number: {self.data['phone_number']}")
-                self.tft_handler.display_user_info(self.data)
+                #self.tft_handler.display_user_info(self.data)
 
                 # Publish user info to MQTT
-                payload = self.mqtt_client.create_payload_user_info(self.data)
-                ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload)
-                print("Pushing data from RFID done" if ret.rc == paho.MQTT_ERR_SUCCESS 
-                      else f"Failed with error code: {ret.rc}")
+                self.mqtt_client.publish("Driver_information", self.data)
+  
             else:
                 self.data = {'name': "None", 'phone_number': "None"}
-                self.tft_handler.display_user_info(self.data)
+                #self.tft_handler.display_user_info(self.data)
                 # Publish user info to MQTT
-                payload = self.mqtt_client.create_payload_user_info(self.data)
-                ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload)
-                print("Pushing data from RFID done" if ret.rc == paho.MQTT_ERR_SUCCESS 
-                      else f"Failed with error code: {ret.rc}")
-                print("No user information found for this card.")
+                self.mqtt_client.publish("Driver_information", self.data)
+
 
             self.last_uid = uid_hex
 
