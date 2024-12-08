@@ -19,7 +19,6 @@ from handle.record_handle import RecordHandler
 import smtplib
 from email.message import EmailMessage
 from handle.email_config import SMTP_SERVER, SMTP_PORT, SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL
-from handle.sensors_handle import SensorHandler  # Import your SensorHandler class
 
 
 
@@ -32,6 +31,49 @@ camera = None
 active_viewers = set()
 server_running = False
 
+# Constants
+ACCEL_THRESHOLD = 2.0 * 9.8
+SPEED_CHANGE_THRESHOLD = 20.0
+
+class AccidentDetector:
+    def __init__(self):
+        self.accel_readings = []
+        self.current_speed = 0
+        self.last_speed = 0
+        
+    def check_status(self, accel, speed):
+        # Add new accelerometer reading
+        self.accel_readings.append(abs(accel))
+        if len(self.accel_readings) > 8:  # Keep 0.12 sec of data
+            self.accel_readings.pop(0)
+            
+        # Update speed
+        self.last_speed = self.current_speed
+        self.current_speed = speed
+        
+        # Get highest 5 readings
+        highest_5 = sorted(self.accel_readings, reverse=True)[:5]
+        avg_accel = sum(highest_5) / 5
+        
+        speed_change = abs(self.current_speed - self.last_speed)
+        
+        return {
+            'acceleration': avg_accel,
+            'speed_change': speed_change,
+            'status': self.determine_status(avg_accel, speed_change)
+        }
+        
+    def determine_status(self, avg_accel, speed_change):
+        if avg_accel > 2.0 and speed_change > 20:
+            return "ACCIDENT"
+        elif avg_accel > 2.0:
+            return "HIGH_IMPACT_NO_SPEED_CHANGE"
+        elif speed_change > 20:
+            return "SPEED_CHANGE_NO_IMPACT"
+        else:
+            return "NORMAL"
+
+
 class CameraStream:
     def __init__(self, mqtt_client, record_handler, sensor_handler):
         self.cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
@@ -43,6 +85,11 @@ class CameraStream:
         self.count = 0
         self.link_local_streaming = "http://127.0.0.1:5001"
         self.accident_signal = 0
+        
+        self.sensor_handler = sensor_handler
+        self.gps_data = "Unknown"
+        self.latitude = getattr(self.sensor_handler, 'latitude', 'N/A')
+        self.longitude = getattr(self.sensor_handler, 'longitude', 'N/A')
         
         # Buffer setup
         self.fps = 20
@@ -69,6 +116,7 @@ class CameraStream:
         
         # Construct the save directory path dynamically
         self.save_dir = os.path.join(self.base_dir, "iot", "firebase", "image", "customer_Phuc")
+        self.thresold_speed = 50
         
         # Create directories if they don't exist
         os.makedirs(self.save_dir, exist_ok=True)
@@ -95,13 +143,18 @@ class CameraStream:
         # self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
         # self.simulate_velocity_thread.daemon = True
         # self.simulate_velocity_thread.start()
+        self.fetch_accelerometer_accident_thread = threading.Thread(target=self.fetch_accelerometer_data)
+        self.fetch_accelerometer_accident_thread.daemon = True
+        self.fetch_accelerometer_accident_thread.start()
         
-        self.keyboard_thread = threading.Thread(target=self._keyboard_control)
-        self.keyboard_thread.daemon = True
-        self.keyboard_thread.start()
+        self.fetch_gps_speed_thread = threading.Thread(target=self.fetch_gps_speed_data)
+        self.fetch_gps_speed_thread.daemon = True
+        self.fetch_gps_speed_thread.start()
         
-        self.sensor_handler = sensor_handler
-        self.gps_data = "Unknown"
+        
+        # self.keyboard_thread = threading.Thread(target=self._keyboard_control)
+        # self.keyboard_thread.daemon = True
+        # self.keyboard_thread.start()
         
         self.start_cloudflared_tunnel()
 
@@ -112,26 +165,25 @@ class CameraStream:
             simulated_velocity = random.uniform(0, 100)
             self.update_velocity(simulated_velocity)
             print(f"Simulated velocity: {simulated_velocity:.2f}")
-            time.sleep(6)
+            time.sleep(5)
 
     def update_velocity(self, velocity):
         """Update current velocity and trigger image capture if needed"""
         self.current_velocity = velocity
         print(f"Current velocity is {velocity}")
-        if velocity > 50:
+        if self.current_velocity > self.thresold_speed:
             self.capture_and_save_image()
-            
+        
     def start_recording(self):
         """Trigger the recording process in RecordHandler."""
         if not self.record_handler.is_recording():
-            # Start recording when the velocity exceeds threshold
+            # Start recording when exceeds threshold
             print("Accident was detected, starting recording...")
             self.record_handler.start_recording(self.get_frame())
 
     def stop_recording(self):
         """Stop recording process."""
         self.record_handler.stop_recording()
-
 
     # def capture_and_save_image(self):
     #     """Capture and save image when velocity threshold is exceeded, then upload."""
@@ -166,17 +218,20 @@ class CameraStream:
         # try:
         #     with frame_lock:
         #         if self.frame_buffer:
-        #             # Get the latest frame from the deque (buffer)
-        #             frame = self.frame_buffer[-1]
+        #             # Get the latest frame and overlay details
+        #             frame = self.frame_buffer[-1].copy()
                     
-        #             # Generate filename with timestamp and velocity
+        #             # Add overlay information
+        #             frame = self.add_timestamp_to_frame(frame)
+                    
+        #             # Generate filename with timestamp and current velocity
         #             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         #             filename = f'image_{timestamp}_speed_{self.current_velocity:.1f}.jpg'
         #             filepath = os.path.join(self.save_dir, filename)
                     
-        #             # Save image
+        #             # Save image with overlay
         #             cv2.imwrite(filepath, frame)
-        #             print(f"Captured image: {filepath}")
+        #             print(f"Captured image: {filepath} with speed: {self.current_velocity:.1f} km/h")
                     
         #             # Call the upload function
         #             try:
@@ -184,24 +239,9 @@ class CameraStream:
         #                 print("Successfully uploaded to Firebase")
         #             except Exception as e:
         #                 print(f"Error uploading to Firebase: {str(e)}")
-
         # except Exception as e:
         #     print(f"Error capturing image: {str(e)}")
 
-    # def _capture_loop(self):
-    #     while self.stream_active:
-    #         if self.cap.isOpened():
-    #             ret, frame = self.cap.read()
-    #             if ret:
-    #                 with frame_lock:
-    #                     _, buffer = cv2.imencode('.jpg', frame)
-    #                     self.frame_buffer = buffer.tobytes()
-                        
-    #             # Add frame to the recorder if recording
-    #                 if self.record_handler.is_recording():
-    #                     self.record_handler.add_frame_to_record(frame)
-                        
-    #         time.sleep(1/30)
     def _capture_loop(self):
         """Capture frames and manage the pre-trigger buffer."""
         while self.stream_active:
@@ -262,59 +302,55 @@ class CameraStream:
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         h, w = frame.shape[:2]
         
-        # Define colors and fonts
+        # Colors and fonts
         TEXT_COLOR = (255, 255, 255)  # White
         HIGHLIGHT_COLOR = (0, 255, 255)  # Yellow
         WARNING_COLOR = (0, 0, 255)  # Red
         FONT = cv2.FONT_HERSHEY_SIMPLEX
-        
-        # Create semi-transparent overlay for the entire bottom bar
+        FONT_SCALE = 0.6
+        FONT_THICKNESS = 2
+
+        # Overlay background
         overlay = frame.copy()
-        cv2.rectangle(overlay, (0, h-80), (w, h), (0, 0, 0), -1)
-        alpha = 0.7
+        cv2.rectangle(overlay, (0, h - 100), (w, h), (0, 0, 0), -1)
+        alpha = 0.6
         frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
-
-        # Add company/device name (top left)
+        
+        # Add device name
         cv2.putText(frame, "DASHCAM PRO", (10, 30), 
-                    FONT, 0.7, HIGHLIGHT_COLOR, 2)
-
-        # Left side information
-        # Time
-        cv2.putText(frame, current_time, (20, h-50), 
-                    FONT, 0.7, TEXT_COLOR, 1)
+                    FONT, FONT_SCALE, HIGHLIGHT_COLOR, FONT_THICKNESS)
         
-        # Speed with dynamic color based on velocity
-        speed_color = WARNING_COLOR if self.current_velocity > 80 else TEXT_COLOR
-        cv2.putText(frame, f'{self.current_velocity:.1f} km/h', (20, h-20), 
-                    FONT, 0.7, speed_color, 1)
-
-        # Center information
-        # GPS coordinates (if available)
-        gps_text = "GPS: 51.5074° N, 0.1278° W"  # Replace with actual GPS data
-        text_size = cv2.getTextSize(gps_text, FONT, 0.6, 1)[0]
-        text_x = (w - text_size[0]) // 2
-        cv2.putText(frame, gps_text, (text_x, h-20), 
-                    FONT, 0.6, TEXT_COLOR, 1)
+        # Add timestamp
+        cv2.putText(frame, current_time, (20, h - 70), 
+                    FONT, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
         
-        # Add subtle border lines
-        cv2.line(frame, (0, h-82), (w, h-82), HIGHLIGHT_COLOR, 1)
+        # Add speed with dynamic color
+        speed_color = WARNING_COLOR if self.current_velocity > self.thresold_speed else TEXT_COLOR
+        cv2.putText(frame, f'Speed: {self.current_velocity:.1f} km/h', (20, h - 40), 
+                    FONT, FONT_SCALE, speed_color, FONT_THICKNESS)
         
-        # Optional: Add event markers or warnings
-        if self.current_velocity > 80:  # Example speed warning
-            warning_text = "SPEED WARNING"
-            text_size = cv2.getTextSize(warning_text, FONT, 0.7, 2)[0]
-            text_x = (w - text_size[0]) // 2
-            cv2.putText(frame, warning_text, (text_x, 60), 
-                        FONT, 0.7, WARNING_COLOR, 2)
+        # Add GPS data if available
+        gps_text = f"GPS: {self.latitude} N, {self.longitude} W"
+        text_size = cv2.getTextSize(gps_text, FONT, FONT_SCALE, FONT_THICKNESS)[0]
+        gps_x = (w - text_size[0]) // 2
+        cv2.putText(frame, gps_text, (gps_x, h - 10), 
+                    FONT, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
+        
+        # Optional: Speed warning
+        if self.current_velocity > self.thresold_speed:
+            warning_text = "SPEED WARNING!"
+            text_size = cv2.getTextSize(warning_text, FONT, FONT_SCALE + 0.2, FONT_THICKNESS)[0]
+            warning_x = (w - text_size[0]) // 2
+            cv2.putText(frame, warning_text, (warning_x, 50), 
+                        FONT, FONT_SCALE + 0.2, WARNING_COLOR, FONT_THICKNESS)
 
         return frame
+
         
     def send_alert_email(self):
         """Prepare email content and return the message object"""
         msg = EmailMessage()
         
-        latitude = getattr(self.sensor_handler, 'latitude', 'N/A')
-        longitude = getattr(self.sensor_handler, 'longitude', 'N/A')
         self.system_id = "Mercedes C300"
         
         html_content = f"""
@@ -331,7 +367,7 @@ class CameraStream:
                     <ul>
                         <li>Time of Detection: {self.get_current_time()}</li>
                         <li>System ID: {self.system_id}</li>
-                        <li>Location: Latitude: {latitude}, Longitude: {longitude}</li>
+                        <li>Location: Latitude: {self.latitude}, Longitude: {self.longitude}</li>
                         <li>Alert Level: HIGH PRIORITY</li>
                     </ul>
                     
@@ -359,7 +395,7 @@ class CameraStream:
         
         Time of Detection: {self.get_current_time()}
         System ID: {self.system_id}
-        Location: Latitude: {latitude}, Longitude: {longitude}
+        Location: Latitude: {self.latitude}, Longitude: {self.longitude}
         Alert Level: HIGH PRIORITY
         
         IMMEDIATE ACTION REQUIRED
@@ -399,6 +435,31 @@ class CameraStream:
         if not self.recording_triggered:
             self.recording_triggered = True
             print("Recording triggered with buffer...")
+            
+    def fetch_accelerometer_data(self):
+        while self.stream_active:
+            try:
+                self.acclerometer_detect = self.sensor_handler.acc_detect_accident
+                print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+            except Exception as e:
+                print(f"Error fetching acc data: {e}")  
+                  
+            # threading.Event().wait(0.015)  # Short delay (~66Hz loop)
+            threading.Event().wait(1)
+    
+    def fetch_gps_speed_data(self):
+        while self.stream_active:
+            try:
+                self.latitude = self.sensor_handler.latitude
+                self.longitude = self.sensor_handler.longitude
+                self.address_no_accent = self.sensor_handler.address_no_accent
+                self.current_velocity = self.sensor_handler.velocity
+                print(f"address_no_accent in camera_gstreamer.py is {self.address_no_accent}")
+            except Exception as e:
+                print(f"Error fetching gps & speed data: {e}")  
+                  
+            threading.Event().wait(1)
+                        
 
     def _keyboard_control(self):
         """Handle keyboard controls in the terminal."""
@@ -549,7 +610,7 @@ def restart_stream():
 
     if camera:
         camera.stop()  # Stop the current stream
-        camera = initialize_camera(camera.mqtt_client, camera.record_handler)  # Re-initialize with same clients
+        camera = initialize_camera(camera.mqtt_client, camera.record_handler, camera.sensor_handler )  # Re-initialize with same clients
         return jsonify({"status": "Stream restarted"}), 200
     return jsonify({"error": "No active video stream"}), 500
 
