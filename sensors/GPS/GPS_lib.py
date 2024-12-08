@@ -1,3 +1,4 @@
+# Thesis/sensors/GPS/GPS_lib.py
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import serial
@@ -7,7 +8,7 @@ import math
 import os
 import subprocess
 from geopy.geocoders import Nominatim
-
+from unidecode import unidecode
 
 class GPSModule:
     def __init__(self, gps_port="/dev/ttyUSB1", setup_port="/dev/ttyUSB2", baudrate=115200):
@@ -33,7 +34,12 @@ class GPSModule:
         self.buffer_lock = threading.Lock()  # Lock to manage buffer access
         self._gps_read_thread = threading.Thread(target=self._read_from_serial)
         self._gps_process_thread = threading.Thread(target=self._process_gps_data)
-
+        self.coordinates_buffer = []  # Buffer to store coordinates with timestamp
+        self.velocity = 0.0 
+        self.coordinates_lock = threading.Lock()  # Lock for coordinates buffer
+        self.avg_velocity = None  # Average velocity
+        self._velocity_thread = threading.Thread(target=self._calculate_velocity)
+        
     def kill_process_using_tty(self, tty_device):
         """
         Kill the process using the given tty device.
@@ -139,9 +145,17 @@ class GPSModule:
         """
         Close the GPS port if it is open.
         """
-        if self.ser1 and self.ser1.is_open:
-            self.ser1.close()
-            print(f"{self.gps_port} Closed.")
+        try:
+            if self.ser1 and self.ser1.is_open:
+                self.ser1.close()
+                print(f"{self.gps_port} Closed.")
+            
+            # if self.ser2 and self.ser2.is_open:
+            #     self.ser2.close()
+            #     print(f"{self.setup_port} Closed.")
+            
+        except Exception as e:
+            print(f"Error during close_gps_port: {e}")
 
 
     def _read_from_serial(self):
@@ -170,41 +184,40 @@ class GPSModule:
                     self.close_gps_port()
                     time.sleep(1)
                     self.open_gps_port()
+                    
                 except Exception as reconnect_error:
                     print(f"Reconnect failed: {reconnect_error}")
                 time.sleep(1)
                 
+            except Exception as e:
+                print(f"Unexpected error in _read_from_serial: {e}")
+                
 
     def _process_gps_data(self):
         """
-        Process GPS data from the buffer.
+        Process GPS data from buffer and store coordinates with timestamp
         """
-        t_previous = time.time()
-
         while not self._stop_event.is_set():
             with self.buffer_lock:
-                # Extract complete lines from the buffer
                 lines = self.buffer.split("\n")
-                self.buffer = lines.pop()  # Keep the last incomplete line in the buffer
+                self.buffer = lines.pop()
+                # print(lines)
 
             for line in lines:
                 line = line.strip()
-                #print(f"Processing line: {line}")
-
                 if line.startswith("$GPRMC"):
                     data = line.split(",")
                     if not data[3] or not data[5]:
-                        print("Invalid data received: latitude or longitude is empty")
                         continue
 
                     try:
                         latitude = float(data[3])
                         longitude = float(data[5])
-                        t = time.time()
+                        timestamp = time.time()
                     except ValueError:
-                        print("Invalid data received: could not convert latitude or longitude to float")
                         continue
 
+                    # Convert coordinates to decimal degrees
                     latitude_direction = data[4]
                     longitude_direction = data[6]
 
@@ -213,23 +226,59 @@ class GPSModule:
                     if longitude_direction == "W":
                         longitude = -longitude
 
-                    self.latitude = int(latitude / 100) + (latitude / 100 - int(latitude / 100)) * 100 / 60
-                    self.longitude = int(longitude / 100) + (longitude / 100 - int(longitude / 100)) * 100 / 60
+                    latitude = int(latitude / 100) + (latitude / 100 - int(latitude / 100)) * 100 / 60
+                    longitude = int(longitude / 100) + (longitude / 100 - int(longitude / 100)) * 100 / 60
 
-                    if self.prev_latitude is not None and self.prev_longitude is not None:
-                        distance = haversine(self.prev_longitude, self.prev_latitude, self.longitude, self.latitude)
-                        time_elapsed = t - t_previous
+                    self.latitude = latitude
+                    self.longitude = longitude
 
-                        if time_elapsed > 0:
-                            self.velocity = distance / time_elapsed  # Velocity in m/s
-                            #print(f"Velocity: {self.velocity:.2f} m/s")
-                        else:
-                            print("Time elapsed is zero; skipping velocity calculation.")
+                    # Store coordinates and timestamp in buffer
+                    with self.coordinates_lock:
+                        self.coordinates_buffer.append((latitude, longitude, timestamp))
 
-                    self.prev_latitude = self.latitude
-                    self.prev_longitude = self.longitude
-                    t_previous = time.time()
-            time.sleep(1)              
+            time.sleep(1)
+    def _calculate_velocity(self):
+        """
+        Calculate average velocity using only start and end points within the time window.
+        """
+        while not self._stop_event.is_set():
+            
+            with self.coordinates_lock:
+                if len(self.coordinates_buffer) < 2:
+                    time.sleep(1)
+                    continue
+                
+                # Get points within the time window
+                current_time = time.time()
+                valid_points = [point for point in self.coordinates_buffer 
+                            if current_time - point[2] <= 2]  #2 is value we need calculate vel in that time
+                
+                # Clean up old points
+                self.coordinates_buffer = valid_points
+                
+                if len(valid_points) < 2:
+                    time.sleep(1)
+                    continue
+
+                # Get start and end points
+                start_point = valid_points[0]
+                end_point = valid_points[-1]
+                
+                # Calculate distance between start and end points
+                distance = haversine(start_point[1], start_point[0], 
+                                end_point[1], end_point[0])
+                
+                # Calculate time difference
+                time_elapsed = end_point[2] - start_point[2]
+                
+                # Calculate velocity
+                if time_elapsed > 0:
+                    self.velocity = distance / time_elapsed  # velocity in m/s
+                else:
+                    self.velocity = 0
+
+            time.sleep(1)  # Wait before next calculation
+            
 
     def get_velocity(self):
         """
@@ -247,8 +296,12 @@ class GPSModule:
         Start the GPS reader and begin reading data.
         """
         self.setup()
+        self._gps_read_thread.daemon = True  # Ensure threads terminate with the main program
+        self._gps_process_thread.daemon = True
+        self._velocity_thread.daemon = True
         self._gps_read_thread.start()
         self._gps_process_thread.start()
+        self._velocity_thread.start()
 
     def stop(self):
         """
@@ -257,7 +310,8 @@ class GPSModule:
         self._stop_event.set()
         self._gps_read_thread.join()
         self._gps_process_thread.join()
-
+        self._velocity_thread.join()
+        
     def destroy(self):
         """
         Clean up resources by closing ports and stopping the GPS module.
@@ -290,19 +344,24 @@ def main():
         print("GPS Reader started. Reading data...")
         geolocator = Nominatim(user_agent="geoapi")
         while True:
+            time.sleep(1)
             velocity = gps_reader.get_velocity()
             latitude, longitude = gps_reader.get_location()
             if latitude is not None and longitude is not None:
-                location = geolocator.reverse((latitude, longitude), language="en")  
+                # location = geolocator.reverse((latitude, longitude), language="en") 
+                geolocator = Nominatim(user_agent="geoapi", timeout=10)
+                locat = geolocator.reverse((latitude, longitude), language="en")
+                address = locat.address
+                address_no_accent = unidecode(address)
+                # location = geolocator.reverse((latitude, longitude), language="en")  
                 print("Lagitude: ", latitude, "Longitude: ", longitude)
-                print(location)
+                print(address_no_accent)
             else: 
                 print("Waiting for location...")
             if velocity is not None:
                 print(f"Current Velocity: {velocity:.2f} m/s")
             else:
                 print("Waiting for velocity data...")
-            time.sleep(1)
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt detected. Stopping GPS reader...")
