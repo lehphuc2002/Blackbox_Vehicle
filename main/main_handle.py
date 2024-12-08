@@ -13,10 +13,12 @@ import handle.connection_internet_handle as conn_handle
 def main():
     connection_monitor_thread = threading.Thread(target=conn_handle.monitor_connection, daemon=True)
     connection_monitor_thread.start()
+    
     # Wait for the connection to stabilize
     while not conn_handle.get_connection_status():
         print("Waiting for internet connection...")
         time.sleep(1)
+        
     # Initialize sensor, MQTT, RFID, and TFT handlers
     # mqtt_client = MQTTClient('CAR2_TOKEN')  # Initialize MQTT client with token
     mqtt_client = MQTTClient('CAR2_TOKEN', conn_handle)  # Initialize MQTT client with token and connection handler

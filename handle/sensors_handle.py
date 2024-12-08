@@ -4,13 +4,16 @@ import time
 import math
 import json
 import queue
-from datetime import datetime
 import paho.mqtt.client as paho
 import os
+from datetime import datetime
+from geopy.geocoders import Nominatim
+from unidecode import unidecode
 
 from sensors.BNO055.BNO055_lib import BNO055Sensor 
 from sensors.Temp_DS18B20.DS18B20 import read_temp
-from sensors.GPS.gps_simulator import GPSSimulator # Simulate GPS
+# from sensors.GPS.gps_simulator import GPSSimulator # Simulate GPS
+from sensors.GPS.GPS_lib import GPSModule
 
 class SensorBuffer:
     def __init__(self, max_size=1000):
@@ -116,9 +119,10 @@ class SensorHandler:
         self.velocity = 0 
         
         # Accelerometer thresholds for accident detection
-        self.ACC_X_THRESHOLD = 15
-        self.ACC_Y_THRESHOLD = 7
-        self.ACC_Z_THRESHOLD = 4
+        # self.ACC_X_THRESHOLD = 15
+        # self.ACC_Y_THRESHOLD = 7
+        # self.ACC_Z_THRESHOLD = 4
+        self.ACC_THRESHOLD = 2.0 * 9.8 # 2G threshold
 
         # Use the passed MQTT client instance
         self.mqtt_client = mqtt_client
@@ -142,7 +146,8 @@ class SensorHandler:
         self.accel_thread.start()
         self.linear_accel_thread.start()
         
-        self.gps = GPSSimulator()
+        # self.gps = GPSSimulator()
+        self.gps = GPSModule()
         self.gps_thread = threading.Thread(target=self.read_gps, daemon=True)
         self.gps_thread.start()
 
@@ -185,8 +190,10 @@ class SensorHandler:
 
     def read_accelerometer(self):
         """Read accelerometer data, update velocity, and publish telemetry."""
+        last_publish_time = time.time()  # Track the last publish time
         while self.running:
             ax, ay, az = self.bno055.accel_data
+            self.acc_detect_accident = math.sqrt(ax**2 + ay**2 + az**2)
             lax, lay, laz = self.bno055.linear_accel_data
             print("Accelerometer:", ax, ay, az)
             print("Linear Accelerometer:", lax, lay, laz)
@@ -207,9 +214,9 @@ class SensorHandler:
             smooth_ay = self.moving_average(self.acc_window['y'])
             smooth_az = self.moving_average(self.acc_window['z'])
             
-            current_time = time.time()
-            dt = current_time - self.last_send_time
-            self.last_send_time = current_time
+            self.current_time = time.time()
+            dt = self.current_time - self.last_send_time
+            self.last_send_time = self.current_time
             
             # If acceleration is very small, treat it as zero
             smooth_ax = 0 if abs(smooth_ax) < self.acc_threshold else smooth_ax
@@ -272,21 +279,20 @@ class SensorHandler:
             print("Velocity real is:", self.velocity)
 
             # Check for potential accidents
-            if any(abs(a) > threshold for a, threshold in zip((ax, ay, az),
-                (self.ACC_X_THRESHOLD, self.ACC_Y_THRESHOLD, self.ACC_Z_THRESHOLD))):
-                status = 'Warning Accident'
-                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status)
-                self._publish_data(payload, "accelerometer", priority=True)
+            if self.acc_detect_accident >= self.ACC_THRESHOLD:
+                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status, lax)
+                self._publish_data(payload, "accelerometer_detect")
 
             # Publish telemetry data every ... seconds
-            if current_time - self.last_send_time >= 4:
+            if self.current_time - last_publish_time >= 4:
                 status = "Normal"  # Replace with your status logic
-                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status)
+                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status, lax)
                 self._publish_data(payload, "accelerometer")
-                self.last_send_time = current_time  # Update last send time
+                # Update the last publish time
+                last_publish_time = self.current_time
 
             # threading.Event().wait(0.015)  # Short delay (~66Hz loop)
-            threading.Event().wait(5)
+            threading.Event().wait(1)
 
     def read_temperature(self):
         """Continuously read temperature data and publish it."""
@@ -312,19 +318,40 @@ class SensorHandler:
 
     def read_gps(self):
         """Continuously read and log GPS data."""
-        self.gps.start()  # Make sure your GPS class has this method
-        while self.running:
-            try:
-                self.latitude, self.longitude = self.gps.get_current_location()
-                payload = self.mqtt_client.create_payload_gps(self.longitude, self.latitude)
-                # ret = self.mqtt_client.publish(payload)  # Publish GPS data
-                # print("GPS data published successfully" if ret.rc == paho.MQTT_ERR_SUCCESS 
-                #           else f"Failed with error code: {ret.rc}")
-                self._publish_data(payload, "gps")
-                print(f"GPS - Latitude: {self.latitude}, Longitude: {self.longitude}")
-            except Exception as e:
-                print(f"Error reading GPS: {e}")
-            threading.Event().wait(3)
+        try:
+            self.gps.start()
+            print("GPS Reader started. Reading data...")
+            geolocator = Nominatim(user_agent="geoapi")
+            while self.running:
+                try:
+                    self.velocity = self.gps.get_velocity()
+                    self.latitude, self.longitude = self.gps.get_location()
+                    if self.latitude is not None and self.longitude is not None:
+                        # location = geolocator.reverse((latitude, longitude), language="en") 
+                        geolocator = Nominatim(user_agent="geoapi", timeout=10)
+                        locat = geolocator.reverse((self.latitude, self.longitude), language="en")
+                        address = locat.address
+                        self.address_no_accent = unidecode(address)
+                        # location = geolocator.reverse((latitude, longitude), language="en")  
+                        print("Lagitude: ", self.latitude, "Longitude: ", self.longitude)
+                        print(self.address_no_accent)
+                        payload = self.mqtt_client.create_payload_gps(self.longitude, self.latitude)
+                        # ret = self.mqtt_client.publish(payload)  # Publish GPS data
+                        # print("GPS data published successfully" if ret.rc == paho.MQTT_ERR_SUCCESS 
+                        #         else f"Failed with error code: {ret.rc}")
+                        self._publish_data(payload, "gps")
+                        print(f"GPS - Latitude: {self.latitude}, Longitude: {self.longitude}")
+                    else: 
+                        print("Waiting for location...")
+                    if self.velocity is not None:
+                        print(f"Current Velocity: {self.velocity:.2f} m/s")
+                    else:
+                        print("Waiting for velocity data...")
+                except Exception as e:
+                    print(f"Error reading GPS: {e}")
+                threading.Event().wait(1)
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt detected. Stopping GPS reader...")
 
     def cleanup(self):
         """Clean up and stop sensors."""
@@ -336,6 +363,7 @@ class SensorHandler:
         if hasattr(self, 'gps'):
             self.gps.stop()  # Ensure the GPS is stopped properly
             self.gps.destroy()  # Free GPS resources if applicable
+            self.gps.read_gps.join(timeout=1)
             print("Cleaned up GPS resources.")
             
         self.publisher_thread.join(timeout=1)
