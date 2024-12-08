@@ -56,8 +56,8 @@ class MotionStateHandler:
         self.MIN_SAMPLES = 5
         
         self.running = True
-        # self.update_thread = threading.Thread(target=self._update_loop, daemon=True)
-        # self.update_thread.start()
+        self.update_thread = threading.Thread(target=self._update_loop, daemon=True)
+        self.update_thread.start()
 
     def _update_loop(self):
         while self.running:
@@ -157,6 +157,7 @@ class MotionStateHandler:
             
             if new_state != self.current_state:
                 self._handle_state_change(new_state)
+                
     def _check_velocity_movement(self):
         if len(self.velocity_buffer) < self.MIN_SAMPLES:
             return False

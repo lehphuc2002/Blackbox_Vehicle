@@ -58,7 +58,7 @@ class MQTTClient:
 		# Set car type and license plates based on the token
 		if token == ACCESS_TOKENS['CAR1']:
 			self.type_car = 'Mercedes'
-			self.license_plates = "59D6666"
+			self.license_plates = "59Y1-66699"
 		elif token == ACCESS_TOKENS['CAR2']:
 			self.type_car = 'Toyota'
 			self.license_plates = "74D1-14515"
@@ -166,11 +166,12 @@ class MQTTClient:
 		})
 
 	# Keep all original payload creation functions
-	def create_payload_motion_data(self, ax, ay, az, speed, status):
+	def create_payload_motion_data(self, ax, ay, az, speed, status, lax):
 		return json.dumps({
 			'Accelerometer X': ax,
 			'Accelerometer Y': ay,
 			'Accelerometer Z': az,
+			'AccLinearX': lax,
 			'Speed': speed,
 			'Status': status
 		})
