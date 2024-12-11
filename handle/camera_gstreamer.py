@@ -37,42 +37,74 @@ SPEED_CHANGE_THRESHOLD = 20.0
 
 class AccidentDetector:
     def __init__(self):
-        self.accel_readings = []
-        self.current_speed = 0
-        self.last_speed = 0
+        # Constants
+        self.ACC_THRESHOLD = 2.0 * 9.81  # Critical impact threshold (m/s²)
+        self.SPEED_DROP_THRESHOLD = 15    # Sudden speed drop threshold (km/h)
         
-    def check_status(self, accel, speed):
-        # Add new accelerometer reading
-        self.accel_readings.append(abs(accel))
-        if len(self.accel_readings) > 8:  # Keep 0.12 sec of data
-            self.accel_readings.pop(0)
+        # Acceleration processing
+        self.acc_window = deque(maxlen=5)  # Store last 5 acc readings (~75ms at 66Hz)
+        self.acc_timestamp = deque(maxlen=5)
+        self.potential_accident = False
+        self.accident_timestamp = None
+        
+        # Speed processing
+        self.last_speed = None
+        self.last_speed_time = None
+        self.speed_drop_confirmed = False
+        
+        # Thread safety
+        self.lock = threading.Lock()
+
+    def process_acceleration(self, acc_value, timestamp):
+        """Process incoming acceleration data (called at ~66Hz)"""
+        with self.lock:
+            self.acc_window.append(abs(acc_value))
+            self.acc_timestamp.append(timestamp)
             
-        # Update speed
-        self.last_speed = self.current_speed
-        self.current_speed = speed
-        
-        # Get highest 5 readings
-        highest_5 = sorted(self.accel_readings, reverse=True)[:5]
-        avg_accel = sum(highest_5) / 5
-        
-        speed_change = abs(self.current_speed - self.last_speed)
-        
-        return {
-            'acceleration': avg_accel,
-            'speed_change': speed_change,
-            'status': self.determine_status(avg_accel, speed_change)
-        }
-        
-    def determine_status(self, avg_accel, speed_change):
-        if avg_accel > 2.0 and speed_change > 20:
-            return "ACCIDENT"
-        elif avg_accel > 2.0:
-            return "HIGH_IMPACT_NO_SPEED_CHANGE"
-        elif speed_change > 20:
-            return "SPEED_CHANGE_NO_IMPACT"
-        else:
+            # Filter noise: Check if we have 3 readings above threshold in our window
+            high_acc_count = sum(1 for acc in self.acc_window if acc > self.ACC_THRESHOLD)
+            
+            if high_acc_count >= 3 and not self.potential_accident:
+                self.potential_accident = True
+                self.accident_timestamp = timestamp
+                return "POTENTIAL_ACCIDENT"
+                
             return "NORMAL"
 
+    def process_speed(self, current_speed, timestamp):
+        """Process incoming speed data (called at 1Hz)"""
+        with self.lock:
+            if not self.last_speed:
+                self.last_speed = current_speed
+                self.last_speed_time = timestamp
+                return "NORMAL"
+            
+            speed_drop = self.last_speed - current_speed
+            
+            # If we have a potential accident from acceleration
+            if self.potential_accident:
+                # Check if speed reading is within 2 seconds of potential accident
+                if abs(timestamp - self.accident_timestamp) <= 2.0:
+                    if speed_drop > self.SPEED_DROP_THRESHOLD:
+                        self.speed_drop_confirmed = True
+                        return "ACCIDENT"
+                else:
+                    # Reset if no speed drop confirmed within time window
+                    self.potential_accident = False
+                    self.accident_timestamp = None
+            
+            self.last_speed = current_speed
+            self.last_speed_time = timestamp
+            return "NORMAL"
+
+    def reset(self):
+        """Reset detector state"""
+        with self.lock:
+            self.acc_window.clear()
+            self.acc_timestamp.clear()
+            self.potential_accident = False
+            self.accident_timestamp = None
+            self.speed_drop_confirmed = False
 
 class CameraStream:
     def __init__(self, mqtt_client, record_handler, sensor_handler):
@@ -143,6 +175,8 @@ class CameraStream:
         # self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
         # self.simulate_velocity_thread.daemon = True
         # self.simulate_velocity_thread.start()
+        
+        self.accident_detector = AccidentDetector()
         self.fetch_accelerometer_accident_thread = threading.Thread(target=self.fetch_accelerometer_data)
         self.fetch_accelerometer_accident_thread.daemon = True
         self.fetch_accelerometer_accident_thread.start()
@@ -184,34 +218,6 @@ class CameraStream:
     def stop_recording(self):
         """Stop recording process."""
         self.record_handler.stop_recording()
-
-    # def capture_and_save_image(self):
-    #     """Capture and save image when velocity threshold is exceeded, then upload."""
-    #     try:
-    #         with frame_lock:
-    #             if self.frame_buffer is not None:
-    #                 # Convert frame buffer to image
-    #                 nparr = np.frombuffer(self.frame_buffer, np.uint8)
-    #                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    
-    #                 # Generate filename with timestamp and velocity
-    #                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    #                 filename = f'image_{timestamp}_speed_{self.current_velocity:.1f}.jpg'
-    #                 filepath = os.path.join(self.save_dir, filename)
-                    
-    #                 # Save image
-    #                 cv2.imwrite(filepath, frame)
-    #                 print(f"Captured image: {filepath}")
-                    
-    #                 # Call the upload function
-    #                 try:
-    #                     upload_images_and_generate_html()
-    #                     print("Successfully uploaded to Firebase")
-    #                 except Exception as e:
-    #                     print(f"Error uploading to Firebase: {str(e)}")
-
-    #     except Exception as e:
-    #         print(f"Error capturing image: {str(e)}")
     
     def capture_and_save_image(self):
         """Capture and save image when velocity threshold is exceeded, then upload."""
@@ -439,8 +445,20 @@ class CameraStream:
     def fetch_accelerometer_data(self):
         while self.stream_active:
             try:
-                self.acclerometer_detect = self.sensor_handler.acc_detect_accident
-                print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+                with threading.Lock():
+                    self.acclerometer_detect = self.sensor_handler.acc_detect_accident
+                    print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+                    timestamp = time.time()
+                    
+                    # Process acceleration data through accident detector
+                    status = self.accident_detector.process_acceleration(self.acclerometer_detect, timestamp)
+                    
+                    if status == "POTENTIAL_ACCIDENT":
+                        print("Potential accident detected from acceleration!")
+                        # Don't trigger recording yet, wait for speed confirmation
+                        
+                # self.acclerometer_detect = self.sensor_handler.acc_detect_accident
+                # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
             except Exception as e:
                 print(f"Error fetching acc data: {e}")  
                   
@@ -450,19 +468,67 @@ class CameraStream:
     def fetch_gps_speed_data(self):
         while self.stream_active:
             try:
-                self.latitude = self.sensor_handler.latitude
-                self.longitude = self.sensor_handler.longitude
-                self.address_no_accent = self.sensor_handler.address_no_accent
-                self.current_velocity = self.sensor_handler.velocity
-                print(f"address_no_accent in camera_gstreamer.py is {self.address_no_accent}")
+                with threading.Lock():
+                    self.latitude = self.sensor_handler.latitude
+                    self.longitude = self.sensor_handler.longitude
+                    self.address_no_accent = self.sensor_handler.address_no_accent
+                    current_speed = self.sensor_handler.velocity
+                    timestamp = time.time()
+                    
+                    # Update current velocity
+                    self.current_velocity = current_speed
+                    print(f"address_no_accent in camera_gstreamer.py is {self.address_no_accent}")
+                    
+                    # Process speed through accident detector
+                    status = self.accident_detector.process_speed(current_speed, timestamp)
+                    
+                    if status == "ACCIDENT":
+                        print("Accident confirmed! Triggering emergency response...")
+                        self.handle_accident()
             except Exception as e:
                 print(f"Error fetching gps & speed data: {e}")  
                   
             threading.Event().wait(1)
-                        
+    
+    def handle_accident(self):
+        """Handle confirmed accident detection"""
+        try:
+            # Trigger recording
+            self.trigger_recording()
+            
+            # Send email alert
+            msg = self.send_alert_email()
+            email_thread = threading.Thread(
+                target=self.send_email_thread,
+                args=(msg,),
+                daemon=True
+            )
+            email_thread.start()
+            
+            # Send MQTT alert
+            self.accident_signal = 1
+            payload = self.mqtt_client.create_payload_accident_signal(self.accident_signal)
+            ret = self.mqtt_client.publish(payload)
+            
+            if ret.rc == paho.MQTT_ERR_SUCCESS:
+                print("Accident signal published successfully")
+                # Reset accident signal after short delay
+                threading.Timer(2.0, self.reset_accident_signal).start()
+            else:
+                print(f"Failed to publish accident signal, error code: {ret.rc}")
+                
+        except Exception as e:
+            print(f"Error handling accident: {e}")
 
+    def reset_accident_signal(self):
+        """Reset accident signal after alert"""
+        self.accident_signal = 0
+        payload = self.mqtt_client.create_payload_accident_signal(self.accident_signal)
+        self.mqtt_client.publish(payload)
+        print("Accident signal reset")
+                        
     def _keyboard_control(self):
-        """Handle keyboard controls in the terminal."""
+        """Handle keyboard controls in the terminal, it simulate the accident, if 'q' is pressed, accident signal will be sent."""
         while self.stream_active:
             # Use input() to listen for key presses in terminal
             key = input("Press 'q' to trigger recording (press 'exit' to quit): ").strip().lower()
@@ -496,11 +562,6 @@ class CameraStream:
                 print("Exiting keyboard control")
                 self.stream_active = False
                 break
-
-
-    # def get_frame(self):
-    #     with frame_lock:
-    #         return self.frame_buffer
     
     def get_frame(self):
         with frame_lock:
