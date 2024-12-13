@@ -325,6 +325,7 @@ class SensorHandler:
             while self.running:
                 try:
                     self.velocity = self.gps.get_velocity()
+                    self.velocity_accident = self.gps.raw_velocity
                     self.latitude, self.longitude = self.gps.get_location()
                     if self.latitude is not None and self.longitude is not None:
                         # location = geolocator.reverse((latitude, longitude), language="en") 

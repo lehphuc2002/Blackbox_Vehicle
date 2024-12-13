@@ -41,11 +41,11 @@ def main():
         video_thread = threading.Thread(target=video_streamer.run_server, daemon=True)
 
         # gps_thread.start()
-        rfid_thread.start()  # Start RFID thread
-        temp_thread.start()  # Start temperature thread
+        # rfid_thread.start()  # Start RFID thread
+        # temp_thread.start()  # Start temperature thread
         video_thread.start()  # Start video streaming
-        acc_thread.start()
-        mq3_thread.start()
+        # acc_thread.start()
+        # mq3_thread.start()
 
         # Start video recording in a separate thread
         # recording_thread = threading.Thread(target=start_recording, args=("filename.h264",))
@@ -55,12 +55,12 @@ def main():
         
         # Ensure the main program waits for all threads to finish
         # gps_thread.join()
-        rfid_thread.join()  # Wait for RFID thread to finish
-        temp_thread.join()  # Wait for temperature thread to finish
+        # rfid_thread.join()  # Wait for RFID thread to finish
+        # temp_thread.join()  # Wait for temperature thread to finish
         # recording_thread.join()  # Join the recording thread as well
         video_thread.join()
-        acc_thread.join()
-        mq3_thread.join()
+        # acc_thread.join()
+        # mq3_thread.join()
 
     except KeyboardInterrupt:
         # Handle manual shutdown (Ctrl+C)

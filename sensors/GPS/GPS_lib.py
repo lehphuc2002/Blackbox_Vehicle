@@ -7,6 +7,7 @@ import threading
 import math
 import os
 import subprocess
+import statistics
 from geopy.geocoders import Nominatim
 from unidecode import unidecode
 
@@ -28,7 +29,6 @@ class GPSModule:
         self.longitude = None
         self.prev_latitude = None
         self.prev_longitude = None
-        self.velocity = None  # Store current velocity in m/s
         self._stop_event = threading.Event()
         self.buffer = ""  # Buffer to store data read from serial
         self.buffer_lock = threading.Lock()  # Lock to manage buffer access
@@ -198,87 +198,178 @@ class GPSModule:
         Process GPS data from buffer and store coordinates with timestamp
         """
         while not self._stop_event.is_set():
-            with self.buffer_lock:
-                lines = self.buffer.split("\n")
-                self.buffer = lines.pop()
-                # print(lines)
+            try:
+                with self.buffer_lock:
+                    lines = self.buffer.split("\n")
+                    self.buffer = lines.pop()
+                    # print(lines)
 
-            for line in lines:
-                line = line.strip()
-                if line.startswith("$GPRMC"):
-                    data = line.split(",")
-                    if not data[3] or not data[5]:
-                        continue
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith("$GPRMC"):
+                        data = line.split(",")
+                        if not data[3] or not data[5]:
+                            continue
 
-                    try:
-                        latitude = float(data[3])
-                        longitude = float(data[5])
-                        timestamp = time.time()
-                    except ValueError:
-                        continue
+                        try:
+                            latitude = float(data[3])
+                            longitude = float(data[5])
+                            timestamp = time.time()
+                        # except ValueError:
+                        #     continue
 
-                    # Convert coordinates to decimal degrees
-                    latitude_direction = data[4]
-                    longitude_direction = data[6]
+                            # Convert coordinates to decimal degrees
+                            latitude_direction = data[4]
+                            longitude_direction = data[6]
 
-                    if latitude_direction == "S":
-                        latitude = -latitude
-                    if longitude_direction == "W":
-                        longitude = -longitude
+                            if latitude_direction == "S":
+                                latitude = -latitude
+                            if longitude_direction == "W":
+                                longitude = -longitude
 
-                    latitude = int(latitude / 100) + (latitude / 100 - int(latitude / 100)) * 100 / 60
-                    longitude = int(longitude / 100) + (longitude / 100 - int(longitude / 100)) * 100 / 60
+                            latitude = int(latitude / 100) + (latitude / 100 - int(latitude / 100)) * 100 / 60
+                            longitude = int(longitude / 100) + (longitude / 100 - int(longitude / 100)) * 100 / 60
 
-                    self.latitude = latitude
-                    self.longitude = longitude
+                            self.latitude = latitude
+                            self.longitude = longitude
 
-                    # Store coordinates and timestamp in buffer
-                    with self.coordinates_lock:
-                        self.coordinates_buffer.append((latitude, longitude, timestamp))
+                            # Store coordinates and timestamp in buffer
+                            with self.coordinates_lock:
+                                self.coordinates_buffer.append((latitude, longitude, timestamp))
+                                
+                        except (ValueError, IndexError) as e:
+                            print(f"Error processing GPS data: {e}")
+                            continue
+            
+            except Exception as e:
+                print(f"Error in GPS processing: {e}")
 
             time.sleep(1)
+    # def _calculate_velocity(self):
+    #     """
+    #     Calculate average velocity using only start and end points within the time window.
+    #     """
+    #     while not self._stop_event.is_set():
+            
+    #         with self.coordinates_lock:
+    #             if len(self.coordinates_buffer) < 2:
+    #                 time.sleep(1)
+    #                 continue
+                
+    #             # Get points within the time window
+    #             current_time = time.time()
+    #             valid_points = [point for point in self.coordinates_buffer 
+    #                         if current_time - point[2] <= 2]  #2 is value we need calculate vel in that time
+                
+    #             # Clean up old points
+    #             self.coordinates_buffer = valid_points
+                
+    #             if len(valid_points) < 2:
+    #                 time.sleep(1)
+    #                 continue
+
+    #             # Get start and end points
+    #             start_point = valid_points[0]
+    #             end_point = valid_points[-1]
+                
+    #             # Calculate distance between start and end points
+    #             distance = haversine(start_point[1], start_point[0], 
+    #                             end_point[1], end_point[0])
+                
+    #             # Calculate time difference
+    #             time_elapsed = end_point[2] - start_point[2]
+                
+    #             # Calculate velocity
+    #             if time_elapsed > 0:
+    #                 self.velocity = distance / time_elapsed  # velocity in m/s
+    #             else:
+    #                 self.velocity = 0
+
+    #         time.sleep(1)  # Wait before next calculation
     def _calculate_velocity(self):
         """
-        Calculate average velocity using only start and end points within the time window.
+        Calculate velocity using professional black box approach with advanced filtering
+        Optimized for accurate velocity detection including sudden changes
         """
+        # Constants for velocity calculation
+        MAX_SPEED = 55.56  # m/s (~200 km/h)
+        MIN_SPEED = 0.83  # m/s (~3 km/h)
+        BUFFER_WINDOW = 2  # 2 seconds for reliable GPS data
+        MIN_POINTS = 2
+        WINDOW_SIZE = 5  # Sliding window for velocity calculation
+        
+        # Initialize variables
+        raw_velocity = 0.0
+        velocity_buffer = []
+        
         while not self._stop_event.is_set():
-            
-            with self.coordinates_lock:
-                if len(self.coordinates_buffer) < 2:
-                    time.sleep(1)
-                    continue
-                
-                # Get points within the time window
-                current_time = time.time()
-                valid_points = [point for point in self.coordinates_buffer 
-                            if current_time - point[2] <= 2]  #2 is value we need calculate vel in that time
-                
-                # Clean up old points
-                self.coordinates_buffer = valid_points
-                
-                if len(valid_points) < 2:
-                    time.sleep(1)
-                    continue
+            try:
+                with self.coordinates_lock:
+                    current_time = time.time()
+                    
+                    # Get recent points within buffer window
+                    valid_points = [
+                        point for point in self.coordinates_buffer 
+                        if current_time - point[2] <= BUFFER_WINDOW
+                    ]
+                    
+                    # Clean buffer, keeping only recent points
+                    self.coordinates_buffer = valid_points
+                    
+                    if len(valid_points) < MIN_POINTS:
+                        time.sleep(1)  # Match GPS update rate
+                        continue
 
-                # Get start and end points
-                start_point = valid_points[0]
-                end_point = valid_points[-1]
-                
-                # Calculate distance between start and end points
-                distance = haversine(start_point[1], start_point[0], 
-                                end_point[1], end_point[0])
-                
-                # Calculate time difference
-                time_elapsed = end_point[2] - start_point[2]
-                
-                # Calculate velocity
-                if time_elapsed > 0:
-                    self.velocity = distance / time_elapsed  # velocity in m/s
-                else:
-                    self.velocity = 0
+                    # Calculate instantaneous velocities
+                    instant_velocities = []
+                    for i in range(1, len(valid_points)):
+                        point1 = valid_points[i-1]
+                        point2 = valid_points[i]
+                        
+                        time_diff = point2[2] - point1[2]
+                        if time_diff <= 0:
+                            continue
+                        
+                        # Calculate distance using haversine formula
+                        distance = haversine(point1[1], point1[0], 
+                                        point2[1], point2[0])
+                        
+                        # Calculate raw instantaneous velocity
+                        inst_velocity = distance / time_diff
+                        
+                        # Validate speed constraints
+                        if MIN_SPEED <= inst_velocity <= MAX_SPEED:
+                            instant_velocities.append(inst_velocity)
+                    
+                    if instant_velocities:
+                        # Get current raw velocity (using median for robustness)
+                        current_velocity = statistics.median(instant_velocities)
+                        
+                        # Update velocity buffer
+                        velocity_buffer.append(current_velocity)
+                        if len(velocity_buffer) > WINDOW_SIZE:
+                            velocity_buffer.pop(0)
+                        
+                        # Calculate raw and filtered velocities
+                        raw_velocity = current_velocity
+                        
+                        # Use Gaussian-weighted moving average for smooth display
+                        # but keep raw_velocity accessible for accident detection
+                        weights = [0.1, 0.2, 0.4, 0.2, 0.1]  # Gaussian-like weights
+                        if len(velocity_buffer) == WINDOW_SIZE:
+                            display_velocity = sum(w * v for w, v in zip(weights, velocity_buffer))
+                        else:
+                            display_velocity = raw_velocity
+                        
+                        # Store both raw and display velocities
+                        self.raw_velocity = raw_velocity  # For accident detection
+                        self.velocity = display_velocity  # For display purposes
 
-            time.sleep(1)  # Wait before next calculation
-            
+            except Exception as e:
+                print(f"Error in velocity calculation: {e}")
+                
+            time.sleep(1)  # Match GPS update rate (1Hz)
+                
 
     def get_velocity(self):
         """
@@ -327,13 +418,17 @@ def haversine(lon1, lat1, lon2, lat2):
     Returns:
         float: Distance in meters.
     """
-    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    r = 6371  # Earth radius in kilometers
-    return 1000 * c * r  # Convert to meters
+    try:
+        lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        r = 6371  # Earth radius in kilometers
+        return 1000 * c * r  # Convert to meters
+    except Exception as e:
+        print(f"Error in haversine calculation: {e}")
+        return 0
 
 
 def main():
