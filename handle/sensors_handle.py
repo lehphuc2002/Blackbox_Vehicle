@@ -4,6 +4,7 @@ import time
 import math
 import json
 import queue
+import RPi.GPIO as GPIO
 import paho.mqtt.client as paho
 import os
 from datetime import datetime
@@ -12,8 +13,9 @@ from unidecode import unidecode
 
 from sensors.BNO055.BNO055_lib import BNO055Sensor 
 from sensors.Temp_DS18B20.DS18B20 import read_temp
-# from sensors.GPS.gps_simulator import GPSSimulator # Simulate GPS
+from sensors.MQ3_ADS1115.MQ3_ADS115 import MQ3Sensor
 from sensors.GPS.GPS_lib import GPSModule
+# from sensors.GPS.gps_simulator import GPSSimulator # Simulate GPS
 
 class SensorBuffer:
     def __init__(self, max_size=1000):
@@ -107,6 +109,7 @@ class SensorHandler:
     def __init__(self, mqtt_client, connection_handler):
         # Initialize BNO055 sensor (accelerometer)
         self.bno055 = BNO055Sensor()
+        self.mq3_sensor = MQ3Sensor(adc_channel=0, gain=1, vcc=5.0)
         
         # Initialize GPS reader
         # self.gps = GPSReader()  # Uncomment and implement this line
@@ -150,17 +153,18 @@ class SensorHandler:
         self.gps = GPSModule()
         self.gps_thread = threading.Thread(target=self.read_gps, daemon=True)
         self.gps_thread.start()
+        print("GPS thread reading at sensors_handle starting done.")
 
     def _publish_data(self, payload, sensor_type, priority=False):
         """Attempt to publish data or buffer it if connection is lost"""
         if self.connection_handler.get_connection_status():
-            ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload)
+            ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload, qos=0)
             if ret.rc == paho.MQTT_ERR_SUCCESS:
                 print(f"{sensor_type} data published successfully")
                 return True
             else:
                 print(f"Failed to publish {sensor_type} data. Error code: {ret.rc}")
-                self.sensor_buffer.add_data(sensor_type, payload)
+                # self.sensor_buffer.add_data(sensor_type, payload)
                 return False
         else:
             print(f"No connection. Buffering {sensor_type} data...")
@@ -192,107 +196,110 @@ class SensorHandler:
         """Read accelerometer data, update velocity, and publish telemetry."""
         last_publish_time = time.time()  # Track the last publish time
         while self.running:
-            ax, ay, az = self.bno055.accel_data
-            self.acc_detect_accident = math.sqrt(ax**2 + ay**2 + az**2)
-            lax, lay, laz = self.bno055.linear_accel_data
-            print("Accelerometer:", ax, ay, az)
-            print("Linear Accelerometer:", lax, lay, laz)
+            while self.bno055.accel_data is not None:
+                ax, ay, az = self.bno055.accel_data
+                self.acc_detect_accident = math.sqrt(ax**2 + ay**2 + az**2)
+                lax, lay, laz = self.bno055.linear_accel_data
+                self.acc_sqrt_linear = math.sqrt(lax**2 + lay**2 + laz**2)
+                print("Accelerometer:", ax, ay, az)
+                print("Linear Accelerometer:", lax, lay, laz)
 
-            # Store recent acceleration readings
-            self.acc_window['x'].append(lax)
-            self.acc_window['y'].append(lay)
-            self.acc_window['z'].append(laz)
-            
-            # Keep only the last 5 readings
-            if len(self.acc_window['x']) > self.acc_window_size:
-                self.acc_window['x'].pop(0)
-                self.acc_window['y'].pop(0)
-                self.acc_window['z'].pop(0)
+                # Store recent acceleration readings
+                self.acc_window['x'].append(lax)
+                self.acc_window['y'].append(lay)
+                self.acc_window['z'].append(laz)
                 
-            # Calculate average acceleration from recent readings
-            smooth_ax = self.moving_average(self.acc_window['x'])
-            smooth_ay = self.moving_average(self.acc_window['y'])
-            smooth_az = self.moving_average(self.acc_window['z'])
-            
-            self.current_time = time.time()
-            dt = self.current_time - self.last_send_time
-            self.last_send_time = self.current_time
-            
-            # If acceleration is very small, treat it as zero
-            smooth_ax = 0 if abs(smooth_ax) < self.acc_threshold else smooth_ax
-            smooth_ay = 0 if abs(smooth_ay) < self.acc_threshold else smooth_ay
-            smooth_az = 0 if abs(smooth_az) < self.acc_threshold else smooth_az
-
-            # Update velocity
-            # self.vx += round(lax, 8) * dt
-            # self.vy += round(lay, 8) * dt
-            # self.vz += round(laz, 8) * dt
-            
-            # Update velocity with decay
-            self.vx = (self.vx + smooth_ax * dt) * self.velocity_decay
-            self.vy = (self.vy + smooth_ay * dt) * self.velocity_decay
-            self.vz = (self.vz + smooth_az * dt) * self.velocity_decay
-
-            # Reset velocity if it's very small
-            if abs(self.vx) < self.zero_velocity_threshold:
-                self.vx = 0
-            if abs(self.vy) < self.zero_velocity_threshold:
-                self.vy = 0
-            if abs(self.vz) < self.zero_velocity_threshold:
-                self.vz = 0
+                # Keep only the last 5 readings
+                if len(self.acc_window['x']) > self.acc_window_size:
+                    self.acc_window['x'].pop(0)
+                    self.acc_window['y'].pop(0)
+                    self.acc_window['z'].pop(0)
+                    
+                # Calculate average acceleration from recent readings
+                smooth_ax = self.moving_average(self.acc_window['x'])
+                smooth_ay = self.moving_average(self.acc_window['y'])
+                smooth_az = self.moving_average(self.acc_window['z'])
                 
-            ######################## Example ########################
-            """
-            Let's say sensor reads these accelerations:
-            Reading 1: 0.03 m/s²
-            Reading 2: -0.02 m/s²
-            Reading 3: 0.04 m/s²
-            Reading 4: 0.01 m/s²
-            Reading 5: -0.03 m/s²
-            The moving average would be: (0.03 - 0.02 + 0.04 + 0.01 - 0.03) / 5 = 0.006 m/s²
-            Since 0.006 is less than threshold (0.1), it gets set to 0
-            This prevents tiny readings from affecting the velocity.
-            """
-            
-            """ 
-            WITHOUT DECAY
-            Starting velocity = 0 m/s
-            Reading tiny acceleration = 0.01 m/s²
+                self.current_time = time.time()
+                dt = self.current_time - self.last_send_time
+                self.last_send_time = self.current_time
+                
+                # If acceleration is very small, treat it as zero
+                smooth_ax = 0 if abs(smooth_ax) < self.acc_threshold else smooth_ax
+                smooth_ay = 0 if abs(smooth_ay) < self.acc_threshold else smooth_ay
+                smooth_az = 0 if abs(smooth_az) < self.acc_threshold else smooth_az
 
-            After 1 second: v = 0 + 0.01 = 0.01 m/s
-            After 2 seconds: v = 0.01 + 0.01 = 0.02 m/s
-            After 3 seconds: v = 0.02 + 0.01 = 0.03 m/s
-            ...keeps increasing forever
-            
-            WITH DECAY
-            Starting velocity = 0 m/s
-            Reading tiny acceleration = 0.01 m/s²
+                # Update velocity
+                # self.vx += round(lax, 8) * dt
+                # self.vy += round(lay, 8) * dt
+                # self.vz += round(laz, 8) * dt
+                
+                # Update velocity with decay
+                self.vx = (self.vx + smooth_ax * dt) * self.velocity_decay
+                self.vy = (self.vy + smooth_ay * dt) * self.velocity_decay
+                self.vz = (self.vz + smooth_az * dt) * self.velocity_decay
 
-            After 1 second: v = (0 + 0.01) * 0.95 = 0.0095 m/s
-            After 2 seconds: v = (0.0095 + 0.01) * 0.95 = 0.0185 m/s
-            After 3 seconds: v = (0.0185 + 0.01) * 0.95 = 0.027 m/s
-            Eventually stabilizes instead of increasing forever
-            """
-            ######################## End Example ########################
-            
-            self.velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
-            print("Velocity real is:", self.velocity)
+                # Reset velocity if it's very small
+                if abs(self.vx) < self.zero_velocity_threshold:
+                    self.vx = 0
+                if abs(self.vy) < self.zero_velocity_threshold:
+                    self.vy = 0
+                if abs(self.vz) < self.zero_velocity_threshold:
+                    self.vz = 0
+                    
+                ######################## Example ########################
+                """
+                Let's say sensor reads these accelerations:
+                Reading 1: 0.03 m/s²
+                Reading 2: -0.02 m/s²
+                Reading 3: 0.04 m/s²
+                Reading 4: 0.01 m/s²
+                Reading 5: -0.03 m/s²
+                The moving average would be: (0.03 - 0.02 + 0.04 + 0.01 - 0.03) / 5 = 0.006 m/s²
+                Since 0.006 is less than threshold (0.1), it gets set to 0
+                This prevents tiny readings from affecting the velocity.
+                """
+                
+                """ 
+                WITHOUT DECAY
+                Starting velocity = 0 m/s
+                Reading tiny acceleration = 0.01 m/s²
 
-            # Check for potential accidents
-            if self.acc_detect_accident >= self.ACC_THRESHOLD:
-                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status, lax)
-                self._publish_data(payload, "accelerometer_detect")
+                After 1 second: v = 0 + 0.01 = 0.01 m/s
+                After 2 seconds: v = 0.01 + 0.01 = 0.02 m/s
+                After 3 seconds: v = 0.02 + 0.01 = 0.03 m/s
+                ...keeps increasing forever
+                
+                WITH DECAY
+                Starting velocity = 0 m/s
+                Reading tiny acceleration = 0.01 m/s²
 
-            # Publish telemetry data every ... seconds
-            if self.current_time - last_publish_time >= 4:
-                status = "Normal"  # Replace with your status logic
-                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status, lax)
-                self._publish_data(payload, "accelerometer")
-                # Update the last publish time
-                last_publish_time = self.current_time
+                After 1 second: v = (0 + 0.01) * 0.95 = 0.0095 m/s
+                After 2 seconds: v = (0.0095 + 0.01) * 0.95 = 0.0185 m/s
+                After 3 seconds: v = (0.0185 + 0.01) * 0.95 = 0.027 m/s
+                Eventually stabilizes instead of increasing forever
+                """
+                ######################## End Example ########################
+                
+                # self.velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
+                # print("Velocity real is:", self.velocity)
 
-            # threading.Event().wait(0.015)  # Short delay (~66Hz loop)
-            threading.Event().wait(1)
+                # Check for potential accidents
+                if self.acc_detect_accident >= self.ACC_THRESHOLD:
+                    # payload = self.mqtt_client.create_payload_motion_data(lax, lay, laz, self.velocity, status, self.acc_detect_accident)
+                    payload = self.mqtt_client.create_payload_motion_data(lax, lay, laz, self.velocity, status, self.acc_detect_accident)
+                    self._publish_data(payload, "accelerometer_detect")
+
+                # Publish telemetry data every ... seconds
+                if self.current_time - last_publish_time >= 4:
+                    status = "Normal"
+                    payload = self.mqtt_client.create_payload_motion_data(lax, lay, laz, self.velocity, status, self.acc_sqrt_linear)
+                    self._publish_data(payload, "accelerometer")
+                    # Update the last publish time
+                    last_publish_time = self.current_time
+
+                # threading.Event().wait(0.015)  # Short delay (~66Hz loop)
+                threading.Event().wait(1)
 
     def read_temperature(self):
         """Continuously read temperature data and publish it."""
@@ -314,43 +321,85 @@ class SensorHandler:
                 print(f"Error reading temperature: {e}")
             
             threading.Event().wait(5)  # Wait 5 seconds before reading again
-
+    
+    def ring_buzzer(self, duration=0.1):
+        """Activate the buzzer for a specified duration."""
+        self.BUZZER_PIN = 20
+        GPIO.output(self.BUZZER_PIN, GPIO.HIGH)
+        time.sleep(duration)
+        GPIO.output(self.BUZZER_PIN, GPIO.LOW)
+            
+    def read_alcohol_value(self):
+        """Continuously read alcohol data and publish it."""
+        last_publish_time = 0
+        while self.running:
+            try:
+                current_time = time.time()
+                alcohol_value = self.mq3_sensor.get_concentration()
+                
+                # Check if alcohol value > 50
+                if alcohol_value > 50:
+                    payload = self.mqtt_client.create_payload_alcohol(round(alcohol_value, 2))
+                    self._publish_data(payload, "alcohol")
+                    print("Publish alcohol value immediately!")
+                    self.ring_buzzer(3)
+                    
+                # Check if 5 seconds have passed
+                if (current_time - last_publish_time) >= 5:
+                    payload = self.mqtt_client.create_payload_alcohol(round(alcohol_value, 2))
+                    self._publish_data(payload, "alcohol") 
+                    print("Publish alcohol value after 5s")
+                    last_publish_time = current_time
+                    
+            except Exception as e:
+                print(f"Error reading alcohol: {e}")
+            
+            threading.Event().wait(1)  # Check every 1 second
 
     def read_gps(self):
         """Continuously read and log GPS data."""
         try:
             self.gps.start()
-            print("GPS Reader started. Reading data...")
+            print("GPS Reader started (at sensors_handle.py). Reading data...")
             geolocator = Nominatim(user_agent="geoapi")
+            print(f"self.running at sensors_handle.py is {self.running}")
+            
             while self.running:
-                try:
-                    self.velocity = self.gps.get_velocity()
-                    self.velocity_accident = self.gps.raw_velocity
-                    self.latitude, self.longitude = self.gps.get_location()
-                    if self.latitude is not None and self.longitude is not None:
-                        # location = geolocator.reverse((latitude, longitude), language="en") 
-                        geolocator = Nominatim(user_agent="geoapi", timeout=10)
-                        locat = geolocator.reverse((self.latitude, self.longitude), language="en")
-                        address = locat.address
-                        self.address_no_accent = unidecode(address)
-                        # location = geolocator.reverse((latitude, longitude), language="en")  
-                        print("Lagitude: ", self.latitude, "Longitude: ", self.longitude)
-                        print(self.address_no_accent)
-                        payload = self.mqtt_client.create_payload_gps(self.longitude, self.latitude)
-                        # ret = self.mqtt_client.publish(payload)  # Publish GPS data
-                        # print("GPS data published successfully" if ret.rc == paho.MQTT_ERR_SUCCESS 
-                        #         else f"Failed with error code: {ret.rc}")
-                        self._publish_data(payload, "gps")
-                        print(f"GPS - Latitude: {self.latitude}, Longitude: {self.longitude}")
-                    else: 
-                        print("Waiting for location...")
-                    if self.velocity is not None:
-                        print(f"Current Velocity: {self.velocity:.2f} m/s")
-                    else:
-                        print("Waiting for velocity data...")
-                except Exception as e:
-                    print(f"Error reading GPS: {e}")
-                threading.Event().wait(1)
+                while self.gps.get_velocity() is not None:
+                    try:
+                        self.velocity = self.gps.get_velocity()
+                        print(f"self.velocity at sensors_handle.py is {self.velocity}")
+                        # self.velocity_accident = self.gps.instant_velocity
+                        # print(f"self.velocity_accident at sensors_handle.py is {self.velocity_accident}")
+                        
+                        self.latitude, self.longitude = self.gps.get_location()
+                        print(f"self.latitude, self.longitude at sensors_handle.py is {self.latitude}, {self.longitude}")
+                        if self.latitude is not None and self.longitude is not None:
+                            # location = geolocator.reverse((latitude, longitude), language="en") 
+                            geolocator = Nominatim(user_agent="geoapi", timeout=10)
+                            locat = geolocator.reverse((self.latitude, self.longitude), language="en")
+                            address = locat.address
+                            self.address_no_accent = unidecode(address)
+                            # location = geolocator.reverse((latitude, longitude), language="en")  
+                            print("Lagitude: ", self.latitude, "Longitude: ", self.longitude)
+                            print(self.address_no_accent)
+                            payload = self.mqtt_client.create_payload_gps(self.longitude, self.latitude, self.velocity)
+                            # ret = self.mqtt_client.publish(payload)  # Publish GPS data
+                            # print("GPS data published successfully" if ret.rc == paho.MQTT_ERR_SUCCESS 
+                            #         else f"Failed with error code: {ret.rc}")
+                            self._publish_data(payload, "gps")
+                            print(f"GPS - Latitude: {self.latitude}, Longitude: {self.longitude}")
+                        else: 
+                            print("Waiting for location...")
+                        if self.velocity is not None:
+                            print(f"Current Velocity: {self.velocity:.2f} m/s")
+                        else:
+                            print("Waiting for velocity data...")
+                    except Exception as e:
+                        print(f"Error reading GPS: {e}")
+                    
+                    threading.Event().wait(1)
+                
         except KeyboardInterrupt:
             print("KeyboardInterrupt detected. Stopping GPS reader...")
 

@@ -136,7 +136,7 @@ class RFIDHandler:
 
                 # Publish user info to MQTT
                 payload = self.mqtt_client.create_payload_user_info(self.data)
-                ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload)
+                ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload, qos = 0)
                 print("Pushing data from RFID done" if ret.rc == paho.MQTT_ERR_SUCCESS 
                       else f"Failed with error code: {ret.rc}")
             else:
@@ -144,7 +144,7 @@ class RFIDHandler:
                 self.tft_handler.display_user_info(self.data)
                 # Publish user info to MQTT
                 payload = self.mqtt_client.create_payload_user_info(self.data)
-                ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload)
+                ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload, qos = 0)
                 print("Pushing data from RFID done" if ret.rc == paho.MQTT_ERR_SUCCESS 
                       else f"Failed with error code: {ret.rc}")
                 print("No user information found for this card.")

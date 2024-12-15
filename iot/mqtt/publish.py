@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import paho.mqtt.client as paho
+# import ssl  # For TLS encryption
 from datetime import datetime
 
 # Constants
@@ -13,24 +14,28 @@ ACCESS_TOKENS = {
 	'CAR3': 'CAR3_TOKEN',  # Tesla
 }
 
-BROKER = '192.168.1.12'
+# BROKER = '192.168.1.12'
+# PORT = 1883
+# INTERVAL = 3
+
+# BROKER = '192.168.144.125'
+# PORT = 1883
+# INTERVAL = 3
+
+# BROKER = 'invite-priorities-commodities-surge.trycloudflare.com'
+# PORT = 1883
+# INTERVAL = 3
+
+# BROKER = "services-liberty-advantage-im.trycloudflare.com"
+# PORT = 443  # The default port for HTTPS (Cloudflare Tunnel uses TLS)
+# INTERVAL = 3  # Data publish interval
+
+BROKER = '192.168.31.222'
 PORT = 1883
 INTERVAL = 3
 
-# BROKER = '192.168.1.160'
-# PORT = 1883
-# INTERVAL = 3
-
-# BROKER = '192.168.1.85'
-# PORT = 1883
-# INTERVAL = 3
-
-# BROKER = '192.168.31.222'
-# PORT = 1883
-# INTERVAL = 3
-
 # BROKER = '0.tcp.ap.ngrok.io'
-# PORT = 18361
+# PORT = 11229
 # INTERVAL = 3
 
 # BROKER = 'f7203bb08fbe0f4761e13ae31b373e28.serveo.net'
@@ -54,6 +59,8 @@ class MQTTClient:
 		self.client.on_connect = self.on_connect
 		# self.client.on_disconnect = self.on_disconnect  # Add on_disconnect callback
 		self.client.username_pw_set(token)
+   		# # Enable TLS encryption for Cloudflare Tunnel
+		# self.client.tls_set(certfile=None, keyfile=None, cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
 
 		# Set car type and license plates based on the token
 		if token == ACCESS_TOKENS['CAR1']:
@@ -108,7 +115,7 @@ class MQTTClient:
 		return json.dumps(payload)
 
 	def publish(self, payload):
-		ret = self.client.publish("v1/devices/me/telemetry", payload)
+		ret = self.client.publish("v1/devices/me/telemetry", payload, qos=0)
 		if ret.rc == paho.MQTT_ERR_SUCCESS:
 			print("Publish success")
 		else:
@@ -166,20 +173,26 @@ class MQTTClient:
 		})
 
 	# Keep all original payload creation functions
-	def create_payload_motion_data(self, ax, ay, az, speed, status, lax):
+	def create_payload_motion_data(self, lax, lay, laz, speed, status, acc_sqrt):
 		return json.dumps({
-			'Accelerometer X': ax,
-			'Accelerometer Y': ay,
-			'Accelerometer Z': az,
-			'AccLinearX': lax,
+			'Accelerometer X': lax,
+			'Accelerometer Y': lay,
+			'Accelerometer Z': laz,
+			'Acc_sqrt': round(acc_sqrt, 2),
+			# 'AccLinearX': lax,
 			'Speed': speed,
-			'Status': status
+			'status': status
 		})
 
 	def create_payload_user_info(self, user):
+      # Get the current timestamp in the required format
+		timestamp = datetime.now().strftime('%H:%M:%S:%f')[:-3]  # Remove last 3 digits of microseconds to get milliseconds
 		return json.dumps({
 			'Name': user['name'],
-			'Phone number': user['phone_number']
+			'Phone number': user['phone_number'],
+   			'license plates': self.license_plates,
+			'Company': self.type_car,
+			'Timestamp': timestamp
 		})
 
 	def create_payload_accelerometer(self, ax, ay, az):
@@ -192,6 +205,9 @@ class MQTTClient:
 	def create_payload_speed(self, speed):
 		return json.dumps({'Speed': speed})
 
+	def create_payload_alcohol(self, alcohol_value):
+			return json.dumps({'Alcohol': alcohol_value})
+
 	def create_payload_temp(self, temp):
 		return json.dumps({'Temperature': temp})
 
@@ -200,10 +216,11 @@ class MQTTClient:
 		timestamp = now.strftime("%H:%M:%S:%f")[:-3]
 		return json.dumps({'Timestamp': timestamp})
 
-	def create_payload_gps(self, longitude_GPS, latitude_GPS):
+	def create_payload_gps(self, longitude_GPS, latitude_GPS, speed):
 		return json.dumps({
 			'Longitude': longitude_GPS,
-			'Latitude': latitude_GPS
+			'Latitude': latitude_GPS,
+   			'Speed': speed,
 		})
 
 	def create_payload_license_plates(self, license_plates):

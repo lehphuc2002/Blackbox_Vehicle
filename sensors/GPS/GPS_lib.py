@@ -36,6 +36,7 @@ class GPSModule:
         self._gps_process_thread = threading.Thread(target=self._process_gps_data)
         self.coordinates_buffer = []  # Buffer to store coordinates with timestamp
         self.velocity = 0.0 
+        self.instant_velocity = 0.0
         self.coordinates_lock = threading.Lock()  # Lock for coordinates buffer
         self.avg_velocity = None  # Average velocity
         self._velocity_thread = threading.Thread(target=self._calculate_velocity)
@@ -244,132 +245,119 @@ class GPSModule:
             except Exception as e:
                 print(f"Error in GPS processing: {e}")
 
-            time.sleep(1)
-    # def _calculate_velocity(self):
-    #     """
-    #     Calculate average velocity using only start and end points within the time window.
-    #     """
-    #     while not self._stop_event.is_set():
+            time.sleep(0.5)
             
-    #         with self.coordinates_lock:
-    #             if len(self.coordinates_buffer) < 2:
-    #                 time.sleep(1)
-    #                 continue
-                
-    #             # Get points within the time window
-    #             current_time = time.time()
-    #             valid_points = [point for point in self.coordinates_buffer 
-    #                         if current_time - point[2] <= 2]  #2 is value we need calculate vel in that time
-                
-    #             # Clean up old points
-    #             self.coordinates_buffer = valid_points
-                
-    #             if len(valid_points) < 2:
-    #                 time.sleep(1)
-    #                 continue
-
-    #             # Get start and end points
-    #             start_point = valid_points[0]
-    #             end_point = valid_points[-1]
-                
-    #             # Calculate distance between start and end points
-    #             distance = haversine(start_point[1], start_point[0], 
-    #                             end_point[1], end_point[0])
-                
-    #             # Calculate time difference
-    #             time_elapsed = end_point[2] - start_point[2]
-                
-    #             # Calculate velocity
-    #             if time_elapsed > 0:
-    #                 self.velocity = distance / time_elapsed  # velocity in m/s
-    #             else:
-    #                 self.velocity = 0
-
-    #         time.sleep(1)  # Wait before next calculation
     def _calculate_velocity(self):
         """
-        Calculate velocity using professional black box approach with advanced filtering
-        Optimized for accurate velocity detection including sudden changes
+        Calculate average velocity using only start and end points within the time window.
         """
-        # Constants for velocity calculation
-        MAX_SPEED = 55.56  # m/s (~200 km/h)
-        MIN_SPEED = 0.83  # m/s (~3 km/h)
-        BUFFER_WINDOW = 2  # 2 seconds for reliable GPS data
-        MIN_POINTS = 2
-        WINDOW_SIZE = 5  # Sliding window for velocity calculation
-        
-        # Initialize variables
-        raw_velocity = 0.0
-        velocity_buffer = []
-        
         while not self._stop_event.is_set():
-            try:
-                with self.coordinates_lock:
-                    current_time = time.time()
-                    
-                    # Get recent points within buffer window
-                    valid_points = [
-                        point for point in self.coordinates_buffer 
-                        if current_time - point[2] <= BUFFER_WINDOW
-                    ]
-                    
-                    # Clean buffer, keeping only recent points
-                    self.coordinates_buffer = valid_points
-                    
-                    if len(valid_points) < MIN_POINTS:
-                        time.sleep(1)  # Match GPS update rate
-                        continue
-
-                    # Calculate instantaneous velocities
-                    instant_velocities = []
-                    for i in range(1, len(valid_points)):
-                        point1 = valid_points[i-1]
-                        point2 = valid_points[i]
-                        
-                        time_diff = point2[2] - point1[2]
-                        if time_diff <= 0:
-                            continue
-                        
-                        # Calculate distance using haversine formula
-                        distance = haversine(point1[1], point1[0], 
-                                        point2[1], point2[0])
-                        
-                        # Calculate raw instantaneous velocity
-                        inst_velocity = distance / time_diff
-                        
-                        # Validate speed constraints
-                        if MIN_SPEED <= inst_velocity <= MAX_SPEED:
-                            instant_velocities.append(inst_velocity)
-                    
-                    if instant_velocities:
-                        # Get current raw velocity (using median for robustness)
-                        current_velocity = statistics.median(instant_velocities)
-                        
-                        # Update velocity buffer
-                        velocity_buffer.append(current_velocity)
-                        if len(velocity_buffer) > WINDOW_SIZE:
-                            velocity_buffer.pop(0)
-                        
-                        # Calculate raw and filtered velocities
-                        raw_velocity = current_velocity
-                        
-                        # Use Gaussian-weighted moving average for smooth display
-                        # but keep raw_velocity accessible for accident detection
-                        weights = [0.1, 0.2, 0.4, 0.2, 0.1]  # Gaussian-like weights
-                        if len(velocity_buffer) == WINDOW_SIZE:
-                            display_velocity = sum(w * v for w, v in zip(weights, velocity_buffer))
-                        else:
-                            display_velocity = raw_velocity
-                        
-                        # Store both raw and display velocities
-                        self.raw_velocity = raw_velocity  # For accident detection
-                        self.velocity = display_velocity  # For display purposes
-
-            except Exception as e:
-                print(f"Error in velocity calculation: {e}")
+            
+            with self.coordinates_lock:
+                if len(self.coordinates_buffer) < 2:
+                    time.sleep(1)
+                    continue
                 
-            time.sleep(1)  # Match GPS update rate (1Hz)
+                # Get points within the time window
+                current_time = time.time()
+                valid_points = [point for point in self.coordinates_buffer 
+                            if current_time - point[2] <= 2]  #2 is value we need calculate vel in that time
                 
+                # Clean up old points
+                self.coordinates_buffer = valid_points
+                
+                if len(valid_points) < 2:
+                    time.sleep(1)
+                    continue
+
+                # Get start and end points
+                start_point = valid_points[0]
+                end_point = valid_points[-1]
+                
+                # Calculate distance between start and end points
+                distance = haversine(start_point[1], start_point[0], 
+                                end_point[1], end_point[0])
+                
+                # Calculate time difference
+                time_elapsed = end_point[2] - start_point[2]
+                
+                # Calculate velocity
+                if time_elapsed > 0:
+                    self.velocity = distance / time_elapsed  # velocity in m/s
+                else:
+                    self.velocity = 0
+
+            time.sleep(1)  # Wait before next calculation
+    
+    # def _calculate_velocity(self):
+    #     """
+    #     Calculate two velocities at 1Hz:
+    #     1. instant_velocity: Immediate velocity for speed drop detection
+    #     2. display_velocity: Smoothed velocity for dashcam display
+    #     """
+    #     # Constants
+    #     MAX_SPEED = 55.56  # m/s (~200 km/h)
+    #     MIN_SPEED = 0.83  # m/s (~3 km/h)
+    #     BUFFER_WINDOW = 2  # 2 seconds buffer
+    #     MIN_POINTS = 2
+    #     DISPLAY_WINDOW = 5  # Window for display smoothing
+        
+    #     # Initialize variables
+    #     self.instant_velocity = 0.0
+    #     self.display_velocity = 0.0
+    #     display_buffer = []
+        
+    #     while not self._stop_event.is_set():
+    #         try:
+    #             with self.coordinates_lock:
+    #                 current_time = time.time()
+                    
+    #                 # Get recent points
+    #                 valid_points = [
+    #                     point for point in self.coordinates_buffer 
+    #                     if current_time - point[2] <= BUFFER_WINDOW
+    #                 ]
+                    
+    #                 self.coordinates_buffer = valid_points
+                    
+    #                 if len(valid_points) < MIN_POINTS:
+    #                     time.sleep(1)
+    #                     continue
+
+    #                 # Calculate current velocity
+    #                 point1 = valid_points[-2]  # Second-to-last point
+    #                 point2 = valid_points[-1]  # Last point
+                    
+    #                 time_diff = point2[2] - point1[2]
+    #                 if time_diff <= 0:
+    #                     continue
+                    
+    #                 distance = haversine(point1[1], point1[0], 
+    #                                 point2[1], point2[0])
+                    
+    #                 current_velocity = distance / time_diff
+                    
+    #                 # Validate speed
+    #                 if MIN_SPEED <= current_velocity <= MAX_SPEED:
+    #                     # Update instant velocity immediately
+    #                     self.instant_velocity = current_velocity
+                        
+    #                     # Update display buffer
+    #                     display_buffer.append(current_velocity)
+    #                     if len(display_buffer) > DISPLAY_WINDOW:
+    #                         display_buffer.pop(0)
+                        
+    #                     # Calculate smoothed display velocity
+    #                     if len(display_buffer) == DISPLAY_WINDOW:
+    #                         weights = [0.1, 0.2, 0.4, 0.2, 0.1]
+    #                         self.display_velocity = sum(w * v for w, v in zip(weights, display_buffer))
+    #                     else:
+    #                         self.display_velocity = statistics.mean(display_buffer)
+
+    #         except Exception as e:
+    #             print(f"Error in velocity calculation: {e}")
+                
+    #         time.sleep(1)  # 1Hz update rate
 
     def get_velocity(self):
         """

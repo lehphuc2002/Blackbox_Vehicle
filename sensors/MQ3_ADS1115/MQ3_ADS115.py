@@ -25,7 +25,7 @@ class MQ3Sensor:
         self.gain = gain
         self.vcc = vcc
         self.interpolator = AlcoholConcentrationInterpolator()
-        self.running = True  
+        self.running = True
 
     def read_sensor(self):
             # Read ADC value from ADS1115
@@ -46,19 +46,19 @@ class MQ3Sensor:
     def get_concentration(self):
         # get alcohol concentration from interpolator
         adc_value, voltage, Rs_Ro_ratio = self.read_sensor()
-        concentration = None
+        self.concentration = None
         if Rs_Ro_ratio is not None:
-            concentration = self.interpolator.get_concentration(Rs_Ro_ratio) * 10
-        return concentration
+            self.concentration = self.interpolator.get_concentration(Rs_Ro_ratio) * 10
+        return self.concentration
 
     def start_reading(self):
         threading.Thread(target=self._read_continuously, daemon=True).start()
 
     def _read_continuously(self):
         while self.running:
-            concentration = self.get_concentration()
-            if concentration is not None:
-                print(f"Concentration (mg/100ml): {concentration:.2f}")
+            self.concentration = self.get_concentration()
+            if self.concentration is not None:
+                print(f"Concentration (mg/100ml): {self.concentration:.2f}")
             else:
                 print("Invalid Rs/Ro ratio, concentration cannot be calculated.")
             time.sleep(1)  

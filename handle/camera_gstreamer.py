@@ -178,9 +178,9 @@ class CameraStream:
         self.thread.daemon = True
         self.thread.start()
         
-        self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
-        self.simulate_velocity_thread.daemon = True
-        self.simulate_velocity_thread.start()
+        # self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
+        # self.simulate_velocity_thread.daemon = True
+        # self.simulate_velocity_thread.start()
         
         self.accident_detector = AccidentDetector()
         self.fetch_accelerometer_accident_thread = threading.Thread(target=self.fetch_accelerometer_data)
@@ -247,8 +247,9 @@ class CameraStream:
                     
                     # Call the upload function
                     try:
-                        upload_images_and_generate_html()
-                        print("Successfully uploaded to Firebase")
+                        # upload_images_and_generate_html()
+                        # print("Successfully uploaded to Firebase")
+                        print("do nothing upload image")
                     except Exception as e:
                         print(f"Error uploading to Firebase: {str(e)}")
         except Exception as e:
@@ -610,17 +611,17 @@ class CameraStream:
     def fetch_accelerometer_data(self):
         while self.stream_active:
             try:
-                with threading.Lock():
-                    self.acclerometer_detect = self.sensor_handler.acc_detect_accident
-                    print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
-                    timestamp = time.time()
-                    
-                    # Process acceleration data through accident detector
-                    status = self.accident_detector.process_acceleration(self.acclerometer_detect, timestamp)
-                    
-                    if status == "POTENTIAL_ACCIDENT":
-                        print("Potential accident detected from acceleration!")
-                        # Don't trigger recording yet, wait for speed confirmation
+                # with threading.Lock():
+                self.acclerometer_detect = self.sensor_handler.acc_detect_accident
+                print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+                timestamp = time.time()
+                
+                # Process acceleration data through accident detector
+                status = self.accident_detector.process_acceleration(self.acclerometer_detect, timestamp)
+                
+                if status == "POTENTIAL_ACCIDENT":
+                    print("Potential accident detected from acceleration!")
+                    # Don't trigger recording yet, wait for speed confirmation
                         
                 # self.acclerometer_detect = self.sensor_handler.acc_detect_accident
                 # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
@@ -633,26 +634,26 @@ class CameraStream:
     def fetch_gps_speed_data(self):
         while self.stream_active:
             try:
-                with threading.Lock():
-                    self.latitude = self.sensor_handler.latitude
-                    self.longitude = self.sensor_handler.longitude
-                    self.address_no_accent = self.sensor_handler.address_no_accent
-                    print(f"address_no_accent in camera_gstreamer.py is {self.address_no_accent}")
-                    
-                    current_speed_accident = self.sensor_handler.velocity_accident
-                    timestamp = time.time()
-                    
-                    # Update current velocity
-                    self.current_velocity = self.sensor_handler.velocity
-                    if self.current_velocity > self.thresold_speed:
-                        self.capture_and_save_image()
-                    
-                    # Process speed through accident detector
-                    status = self.accident_detector.process_speed(current_speed_accident, timestamp)
-                    
-                    if status == "ACCIDENT":
-                        print("Accident confirmed! Triggering emergency response...")
-                        self.handle_accident()
+                # with threading.Lock():
+                self.latitude = self.sensor_handler.latitude
+                self.longitude = self.sensor_handler.longitude
+                self.address_no_accent = self.sensor_handler.address_no_accent
+                print(f"address_no_accent in camera_gstreamer.py is {self.address_no_accent}")
+                
+                current_speed_accident = self.sensor_handler.velocity
+                timestamp = time.time()
+                
+                # Update current velocity
+                self.current_velocity = self.sensor_handler.velocity
+                if self.current_velocity > self.thresold_speed:
+                    self.capture_and_save_image()
+                
+                # Process speed through accident detector
+                status = self.accident_detector.process_speed(current_speed_accident, timestamp)
+                
+                if status == "ACCIDENT":
+                    print("Accident confirmed! Triggering emergency response...")
+                    self.handle_accident()
             except Exception as e:
                 print(f"Error fetching gps & speed data: {e}")  
                   
