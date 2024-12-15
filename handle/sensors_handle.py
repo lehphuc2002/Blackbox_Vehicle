@@ -120,12 +120,13 @@ class SensorHandler:
         # Velocity components
         self.vx, self.vy, self.vz = 0, 0, 0
         self.velocity = 0 
+        self.status = "Normal"
         
         # Accelerometer thresholds for accident detection
         # self.ACC_X_THRESHOLD = 15
         # self.ACC_Y_THRESHOLD = 7
         # self.ACC_Z_THRESHOLD = 4
-        self.ACC_THRESHOLD = 2.0 * 9.8 # 2G threshold
+        self.ACC_THRESHOLD = 2.0 * 9.8 # remmember changing in camera_gstreamer.py threshold acc
 
         # Use the passed MQTT client instance
         self.mqtt_client = mqtt_client
@@ -197,12 +198,15 @@ class SensorHandler:
         last_publish_time = time.time()  # Track the last publish time
         while self.running:
             while self.bno055.accel_data is not None:
-                ax, ay, az = self.bno055.accel_data
+                ax, ay, az = self.bno055.accel_data 
                 self.acc_detect_accident = math.sqrt(ax**2 + ay**2 + az**2)
                 lax, lay, laz = self.bno055.linear_accel_data
                 self.acc_sqrt_linear = math.sqrt(lax**2 + lay**2 + laz**2)
-                print("Accelerometer:", ax, ay, az)
-                print("Linear Accelerometer:", lax, lay, laz)
+                
+                if (ax > 100 or ay > 100 or az > 100):
+                    continue
+                # print("Accelerometer:", ax, ay, az)
+                # print("Linear Accelerometer:", lax, lay, laz)
 
                 # Store recent acceleration readings
                 self.acc_window['x'].append(lax)
@@ -281,26 +285,36 @@ class SensorHandler:
                 """
                 ######################## End Example ########################
                 
-                # self.velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
+                self.velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
                 # print("Velocity real is:", self.velocity)
 
                 # Check for potential accidents
                 if self.acc_detect_accident >= self.ACC_THRESHOLD:
                     # payload = self.mqtt_client.create_payload_motion_data(lax, lay, laz, self.velocity, status, self.acc_detect_accident)
-                    payload = self.mqtt_client.create_payload_motion_data(lax, lay, laz, self.velocity, status, self.acc_detect_accident)
+                    self.status = "PotentialAccident"
+                    payload = self.mqtt_client.create_payload_motion_data(lax, lay, laz, self.velocity, self.status, self.acc_detect_accident)
                     self._publish_data(payload, "accelerometer_detect")
 
                 # Publish telemetry data every ... seconds
                 if self.current_time - last_publish_time >= 4:
-                    status = "Normal"
-                    payload = self.mqtt_client.create_payload_motion_data(lax, lay, laz, self.velocity, status, self.acc_sqrt_linear)
+                    self.status = "Normal"
+                    payload = self.mqtt_client.create_payload_motion_data(lax, lay, laz, self.velocity, self.status, self.acc_sqrt_linear)
                     self._publish_data(payload, "accelerometer")
                     # Update the last publish time
                     last_publish_time = self.current_time
 
-                # threading.Event().wait(0.015)  # Short delay (~66Hz loop)
-                threading.Event().wait(1)
-
+                timestamp = time.time()
+                readable_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+     
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                log_file_path = os.path.join(script_dir, "acc_sensors_handle.txt")
+                with open(log_file_path, "a") as log_file:
+                    log_file.write(
+                        f"{readable_time}: Acceleration={ax}, {ay}, {az}, {lax}, {lay}, {laz}, Velocity is: {self.velocity}, acc_detect_accident is {self.acc_detect_accident}, Status is {self.status} \n"
+                    )
+         
+                threading.Event().wait(0.1)  # Short delay (~66Hz loop)
+                # threading.Event().wait(1)  
     def read_temperature(self):
         """Continuously read temperature data and publish it."""
         while self.running:
@@ -367,7 +381,7 @@ class SensorHandler:
             while self.running:
                 while self.gps.get_velocity() is not None:
                     try:
-                        self.velocity = self.gps.get_velocity()
+                        # self.velocity = self.gps.get_velocity()
                         print(f"self.velocity at sensors_handle.py is {self.velocity}")
                         # self.velocity_accident = self.gps.instant_velocity
                         # print(f"self.velocity_accident at sensors_handle.py is {self.velocity_accident}")

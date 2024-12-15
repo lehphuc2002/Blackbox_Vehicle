@@ -5,18 +5,19 @@ import os
 import signal
 import threading
 import time
+from datetime import datetime
 import subprocess
 import re
+
 import paho.mqtt.client as paho
-from iot.mqtt.publish import MQTTClient
-from datetime import datetime
+import smtplib
 from collections import deque
-from datetime import datetime
 import numpy as np
 import random
+
 from iot.firebase.push_image import upload_images_and_generate_html
 from handle.record_handle import RecordHandler
-import smtplib
+from iot.mqtt.publish import MQTTClient
 from email.message import EmailMessage
 from handle.email_config import SMTP_SERVER, SMTP_PORT, SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL
 
@@ -32,14 +33,14 @@ active_viewers = set()
 server_running = False
 
 # Constants
-ACCEL_THRESHOLD = 2.0 * 9.8
-SPEED_DROP_THRESHOLD = 10.0
+ACCEL_THRESHOLD = 1.2 * 9.8 # also remember changing threshold acc in sensors_handle.py
+SPEED_DROP_THRESHOLD = 0
 
 class AccidentDetector:
     def __init__(self):
         # Constants
-        self.ACC_THRESHOLD = 2.0 * 9.81  # Critical impact threshold (m/s²)
-        self.SPEED_DROP_THRESHOLD = 15    # Sudden speed drop threshold (km/h)
+        # self.ACC_THRESHOLD = 1.5 * 9.81  # Critical impact threshold (m/s²)
+        # self.SPEED_DROP_THRESHOLD = 15    # Sudden speed drop threshold (km/h)
         
         # Acceleration processing
         self.acc_window = deque(maxlen=5)  # Store last 5 acc readings (~75ms at 66Hz)
@@ -62,8 +63,8 @@ class AccidentDetector:
             self.acc_timestamp.append(timestamp)
             
             # Filter noise: Check if we have 3 readings above threshold in our window
-            high_acc_count = sum(1 for acc in self.acc_window if acc > self.ACC_THRESHOLD)
-            
+            high_acc_count = sum(1 for acc in self.acc_window if acc > ACCEL_THRESHOLD)
+            # print(f"high_acc_count is {high_acc_count}")
             if high_acc_count >= 3 and not self.potential_accident:
                 self.potential_accident = True
                 self.accident_timestamp = timestamp
@@ -80,6 +81,8 @@ class AccidentDetector:
                 return "NORMAL"
             
             speed_drop = self.last_speed - current_speed
+            print(f"speed drop is {speed_drop}")
+            print(f"self.last_speed is {self.last_speed}")
             
             # If we have a potential accident from acceleration
             if self.potential_accident:
@@ -88,9 +91,9 @@ class AccidentDetector:
                     print(f"timestamp - self.accident_timestamp) in process_speed is {timestamp - self.accident_timestamp}")
                     print(f"speed_drop in procees_speed is {speed_drop}")
                     print(f"self.current_speed_accident * 0.2 in process_speed is {current_speed * 0.2}")
-                    # if abs(speed_drop) > self.SPEED_DROP_THRESHOLD:
+                    if abs(speed_drop) >= SPEED_DROP_THRESHOLD:
                     # if abs(speed_drop) >= max(self.last_speed * 0.2, SPEED_DROP_THRESHOLD):
-                    if abs(speed_drop) >= (self.last_speed * 0.2):
+                    # if abs(speed_drop) >= (self.last_speed * 0.1):
                         self.speed_drop_confirmed = True
                         return "ACCIDENT"
                 else:
@@ -608,29 +611,67 @@ class CameraStream:
             self.recording_triggered = True
             print("Recording triggered with buffer...")
             
+    # def fetch_accelerometer_data(self):
+    #     while self.stream_active:
+    #         try:
+    #             # with threading.Lock():
+    #             self.acclerometer_detect = self.sensor_handler.acc_detect_accident
+    #             # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+                
+    #             timestamp = time.time()
+                
+    #             # Process acceleration data through accident detector
+    #             status = self.accident_detector.process_acceleration(self.acclerometer_detect, timestamp)
+                
+    #             if status == "POTENTIAL_ACCIDENT":
+    #                 print("Potential accident detected from acceleration!")
+    #                 # Don't trigger recording yet, wait for speed confirmation
+                        
+    #             # self.acclerometer_detect = self.sensor_handler.acc_detect_accident
+    #             # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+    #         except Exception as e:
+    #             print(f"Error fetching acc data: {e}")  
+                  
+    #         threading.Event().wait(0.015)  # Short delay (~66Hz loop)
+    #         # threading.Event().wait(1)
+
     def fetch_accelerometer_data(self):
+        # Determine the file path relative to the script location
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        log_file_path = os.path.join(script_dir, "accelerometer_data.txt")
+        
         while self.stream_active:
             try:
-                # with threading.Lock():
+                # Get acceleration data
                 self.acclerometer_detect = self.sensor_handler.acc_detect_accident
-                print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+                # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+                
+                # Get the current timestamp
                 timestamp = time.time()
+                readable_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Process acceleration data through accident detector
-                status = self.accident_detector.process_acceleration(self.acclerometer_detect, timestamp)
+                # Process acceleration data through the accident detector
+                self.status = self.accident_detector.process_acceleration(self.acclerometer_detect, timestamp)
                 
-                if status == "POTENTIAL_ACCIDENT":
+                # Write the acceleration data and status to the file
+                with open(log_file_path, "a") as log_file:
+                    log_file.write(
+                        f"{readable_time}: Acceleration={self.acclerometer_detect}, Status={self.status}\n"
+                    )
+                
+                # If a potential accident is detected
+                if self.status == "POTENTIAL_ACCIDENT":
                     print("Potential accident detected from acceleration!")
                     # Don't trigger recording yet, wait for speed confirmation
-                        
-                # self.acclerometer_detect = self.sensor_handler.acc_detect_accident
-                # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
+                    
             except Exception as e:
-                print(f"Error fetching acc data: {e}")  
-                  
-            # threading.Event().wait(0.015)  # Short delay (~66Hz loop)
-            threading.Event().wait(1)
-    
+                # Log errors to the file as well
+                with open(log_file_path, "a") as log_file:
+                    log_file.write(f"Error fetching acc data: {e}\n")
+                    
+            threading.Event().wait(0.1)  # Short delay (~66Hz loop)
+            # threading.Event().wait(1)
+
     def fetch_gps_speed_data(self):
         while self.stream_active:
             try:
@@ -641,6 +682,7 @@ class CameraStream:
                 print(f"address_no_accent in camera_gstreamer.py is {self.address_no_accent}")
                 
                 current_speed_accident = self.sensor_handler.velocity
+                print(f"Velocity checking accident is {current_speed_accident}")
                 timestamp = time.time()
                 
                 # Update current velocity
@@ -649,9 +691,9 @@ class CameraStream:
                     self.capture_and_save_image()
                 
                 # Process speed through accident detector
-                status = self.accident_detector.process_speed(current_speed_accident, timestamp)
+                self.status = self.accident_detector.process_speed(current_speed_accident, timestamp)
                 
-                if status == "ACCIDENT":
+                if self.status == "ACCIDENT":
                     print("Accident confirmed! Triggering emergency response...")
                     self.handle_accident()
             except Exception as e:

@@ -6,6 +6,7 @@ import numpy as np
 import sys
 import math
 import threading
+import os
 
 class BNO055Sensor:
     BNO055_ADDRESS = 0x29
@@ -46,11 +47,11 @@ class BNO055Sensor:
         time.sleep(0.03)
 
     def read_accelerometer_data(self):
-        accel_data = self.read_i2c_block_data(self.BNO055_ACCEL_DATA_X_LSB, 6)
+        raw_accel_data = self.read_i2c_block_data(self.BNO055_ACCEL_DATA_X_LSB, 6)
 
-        accel_x = ((accel_data[1] << 8) | accel_data[0]) & 0xFFFF
-        accel_y = ((accel_data[3] << 8) | accel_data[2]) & 0xFFFF
-        accel_z = ((accel_data[5] << 8) | accel_data[4]) & 0xFFFF
+        accel_x = ((raw_accel_data[1] << 8) | raw_accel_data[0]) & 0xFFFF
+        accel_y = ((raw_accel_data[3] << 8) | raw_accel_data[2]) & 0xFFFF
+        accel_z = ((raw_accel_data[5] << 8) | raw_accel_data[4]) & 0xFFFF
 
         if accel_x > 32767: accel_x -= 65536
         if accel_y > 32767: accel_y -= 65536
@@ -59,11 +60,11 @@ class BNO055Sensor:
         return accel_x / 100, accel_y / 100, accel_z / 100
 
     def read_linear_accelerometer_data(self):
-        linear_accel_data = self.read_i2c_block_data(self.BNO055_LINEAR_ACCEL_DATA_X_LSB, 6)
+        raw_linear_accel_data = self.read_i2c_block_data(self.BNO055_LINEAR_ACCEL_DATA_X_LSB, 6)
 
-        linear_accel_x = ((linear_accel_data[1] << 8) | linear_accel_data[0]) & 0xFFFF
-        linear_accel_y = ((linear_accel_data[3] << 8) | linear_accel_data[2]) & 0xFFFF
-        linear_accel_z = ((linear_accel_data[5] << 8) | linear_accel_data[4]) & 0xFFFF
+        linear_accel_x = ((raw_linear_accel_data[1] << 8) | raw_linear_accel_data[0]) & 0xFFFF
+        linear_accel_y = ((raw_linear_accel_data[3] << 8) | raw_linear_accel_data[2]) & 0xFFFF
+        linear_accel_z = ((raw_linear_accel_data[5] << 8) | raw_linear_accel_data[4]) & 0xFFFF
 
         if linear_accel_x > 32767: linear_accel_x -= 65536
         if linear_accel_y > 32767: linear_accel_y -= 65536
@@ -92,7 +93,7 @@ class BNO055Sensor:
     def main_1(self):
         time_start = time.time()
         vx = vy = vz = 0
-
+        self.running = True
         while self.running:
             with self.lock:
                 ax, ay, az = self.accel_data
@@ -110,4 +111,49 @@ class BNO055Sensor:
             # print("Velocity:", velocity)
             print("Accelerometer:", ax, ay, az)
             print("Linear Accelerometer:", lax, lay, laz)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            log_file_path = os.path.join(script_dir, "acc_bno055.txt")
+            with open(log_file_path, "a") as log_file:
+                log_file.write(
+                    f" Acceleration={ax},| {ay},| {az}, ||| {lax}, {lay}, {laz} \n"
+                )
             time.sleep(0.02)
+            
+def main():
+    try:
+        # Initialize the BNO055 sensor
+        sensor = BNO055Sensor()
+
+        # Start threads to read accelerometer and linear accelerometer data
+        accel_thread = threading.Thread(target=sensor.read_accelerometer_thread)
+        linear_accel_thread = threading.Thread(target=sensor.read_linear_accelerometer_thread)
+
+        # Start the threads
+        accel_thread.start()
+        linear_accel_thread.start()
+
+        print("Reading data from BNO055 sensor. Press Ctrl+C to stop.\n")
+
+        while True:
+            with sensor.lock:  # Ensure thread-safe access to shared data
+                acc_x, acc_y, acc_z = sensor.accel_data
+                linear_acc_x, linear_acc_y, linear_acc_z = sensor.linear_accel_data
+
+            # Print the accelerometer and linear accelerometer data
+            print(f"Accelerometer: X={acc_x:.2f} m/s², Y={acc_y:.2f} m/s², Z={acc_z:.2f} m/s²")
+            print(f"Linear Accelerometer: X={linear_acc_x:.2f} m/s², Y={linear_acc_y:.2f} m/s², Z={linear_acc_z:.2f} m/s²\n")
+
+            # Add a delay to avoid flooding the console
+            time.sleep(0.02)
+
+    except KeyboardInterrupt:
+        print("\nStopping threads and exiting...")
+        sensor.stop_threads()
+
+        # Wait for threads to finish
+        accel_thread.join()
+        linear_accel_thread.join()
+        print("Threads stopped successfully. Exiting program.")
+
+if __name__ == "__main__":
+    main()

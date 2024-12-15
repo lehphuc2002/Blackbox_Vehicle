@@ -18,9 +18,9 @@ ACCESS_TOKENS = {
 # PORT = 1883
 # INTERVAL = 3
 
-# BROKER = '192.168.144.125'
-# PORT = 1883
-# INTERVAL = 3
+BROKER = '192.168.156.125'
+PORT = 1883
+INTERVAL = 3
 
 # BROKER = 'invite-priorities-commodities-surge.trycloudflare.com'
 # PORT = 1883
@@ -30,12 +30,12 @@ ACCESS_TOKENS = {
 # PORT = 443  # The default port for HTTPS (Cloudflare Tunnel uses TLS)
 # INTERVAL = 3  # Data publish interval
 
-BROKER = '192.168.31.222'
-PORT = 1883
-INTERVAL = 3
+#BROKER = '192.168.31.222'
+#PORT = 1883
+#INTERVAL = 3
 
 # BROKER = '0.tcp.ap.ngrok.io'
-# PORT = 11229
+# PORT = 14282
 # INTERVAL = 3
 
 # BROKER = 'f7203bb08fbe0f4761e13ae31b373e28.serveo.net'

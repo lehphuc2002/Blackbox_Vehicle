@@ -245,49 +245,49 @@ class GPSModule:
             except Exception as e:
                 print(f"Error in GPS processing: {e}")
 
-            time.sleep(0.5)
+            time.sleep(0.1)
             
     def _calculate_velocity(self):
         """
         Calculate average velocity using only start and end points within the time window.
         """
-        while not self._stop_event.is_set():
+        # while not self._stop_event.is_set():
             
-            with self.coordinates_lock:
-                if len(self.coordinates_buffer) < 2:
-                    time.sleep(1)
-                    continue
+        #     with self.coordinates_lock:
+        #         if len(self.coordinates_buffer) < 2:
+        #             time.sleep(1)
+        #             continue
                 
-                # Get points within the time window
-                current_time = time.time()
-                valid_points = [point for point in self.coordinates_buffer 
-                            if current_time - point[2] <= 2]  #2 is value we need calculate vel in that time
+        #         # Get points within the time window
+        #         current_time = time.time()
+        #         valid_points = [point for point in self.coordinates_buffer 
+        #                     if current_time - point[2] <= 2]  #2 is value we need calculate vel in that time
                 
-                # Clean up old points
-                self.coordinates_buffer = valid_points
+        #         # Clean up old points
+        #         self.coordinates_buffer = valid_points
                 
-                if len(valid_points) < 2:
-                    time.sleep(1)
-                    continue
+        #         if len(valid_points) < 2:
+        #             time.sleep(1)
+        #             continue
 
-                # Get start and end points
-                start_point = valid_points[0]
-                end_point = valid_points[-1]
+        #         # Get start and end points
+        #         start_point = valid_points[0]
+        #         end_point = valid_points[-1]
                 
-                # Calculate distance between start and end points
-                distance = haversine(start_point[1], start_point[0], 
-                                end_point[1], end_point[0])
+        #         # Calculate distance between start and end points
+        #         distance = haversine(start_point[1], start_point[0], 
+        #                         end_point[1], end_point[0])
                 
-                # Calculate time difference
-                time_elapsed = end_point[2] - start_point[2]
+        #         # Calculate time difference
+        #         time_elapsed = end_point[2] - start_point[2]
                 
-                # Calculate velocity
-                if time_elapsed > 0:
-                    self.velocity = distance / time_elapsed  # velocity in m/s
-                else:
-                    self.velocity = 0
+        #         # Calculate velocity
+        #         if time_elapsed > 0:
+        #             self.velocity = 3.6 * (distance / time_elapsed)  # velocity in km/h
+        #         else:
+        #             self.velocity = 0
 
-            time.sleep(1)  # Wait before next calculation
+        #     time.sleep(1)  # Wait before next calculation
     
     # def _calculate_velocity(self):
     #     """
@@ -357,7 +357,7 @@ class GPSModule:
     #         except Exception as e:
     #             print(f"Error in velocity calculation: {e}")
                 
-    #         time.sleep(1)  # 1Hz update rate
+    #         time.sleep(0.6)  # 1Hz update rate
 
     def get_velocity(self):
         """
