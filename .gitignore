@@ -7,6 +7,7 @@ __pycache__/
 0001-add-kalman-file.patch
 test_frame.jpg
 email_config.py
+sms_config.py
 
 # C extensions
 *.so

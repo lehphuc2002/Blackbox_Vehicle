@@ -5,23 +5,25 @@ import os
 import signal
 import threading
 import time
-from datetime import datetime
 import subprocess
 import re
 
-import paho.mqtt.client as paho
-import smtplib
-from collections import deque
 import numpy as np
 import random
+import paho.mqtt.client as paho
+import smtplib
+
+from collections import deque
+from datetime import datetime
+from twilio.rest import Client
+
 
 from iot.firebase.push_image import upload_images_and_generate_html
 from handle.record_handle import RecordHandler
 from iot.mqtt.publish import MQTTClient
 from email.message import EmailMessage
 from handle.email_config import SMTP_SERVER, SMTP_PORT, SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL
-
-
+from handle.sms_config import ACCOUNT_SID, AUTH_TOKEN
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -588,6 +590,25 @@ class CameraStream:
         msg['Priority'] = 'urgent'
         
         return msg
+    
+    def send_sms_alert(self):
+        """Send SMS alert about accident"""
+        try:
+            # Your Twilio credentials
+            account_sid = ACCOUNT_SID
+            auth_token = AUTH_TOKEN
+            client = Client(account_sid, auth_token)
+
+            message = client.messages.create(
+                body="\n‼️ URGENT ALERT ‼️\n➜ Accident reported!\n📍 Mercedes C300\n⚠️ Please check status immediately",
+                from_='+12183949340',  
+                to='+84377300827'   
+            )
+
+            print(f"SMS alert sent successfully. SID: {message.sid}")
+            
+        except Exception as e:
+            print(f"Error sending SMS alert: {e}")
 
     def send_email_thread(self, msg):
         """Actually send the email in a separate thread"""
@@ -597,6 +618,7 @@ class CameraStream:
                 server.login(SENDER_EMAIL, SENDER_PASSWORD)
                 server.send_message(msg)
                 print("[ALERT] Emergency notification email sent successfully")
+                
         except Exception as e:
             print(f"[ERROR] Failed to send emergency alert email: {str(e)}")
 
@@ -706,6 +728,13 @@ class CameraStream:
         try:
             # Trigger recording
             self.trigger_recording()
+            
+            sms_thread = threading.Thread(
+            target=self.send_sms_alert,
+            daemon=True
+            )
+            sms_thread.start()
+            sms_thread.join(timeout=10)  # Wait up to 10 seconds for SMS to be sent
             
             # Send email alert
             msg = self.send_alert_email()
