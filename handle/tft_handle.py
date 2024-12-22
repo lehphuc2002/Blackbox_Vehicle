@@ -9,9 +9,10 @@ class TFTHandler:
         """Display the user information on the TFT screen."""
         name = data.get('name', 'None User')
         phone_number = data.get('phone_number', 'None')
+        status = data.get('status', 'Unauthorized')
         
         # Call the draw_tft function from tft_display to update the display
-        draw_tft(str(name), str(phone_number))
+        draw_tft(str(name), str(status))
 
 if __name__ == "__main__":
     # Example of usage

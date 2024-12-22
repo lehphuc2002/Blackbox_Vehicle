@@ -33,19 +33,19 @@ def main():
         # Create and start threads for GPS, accelerometer, and RFID handling
         # gps_thread = threading.Thread(target=sensor_handler.read_gps, args=(mqtt_client,))  # Use instance method for GPS
         rfid_thread = threading.Thread(target=rfid_handler.read_rfid, daemon=True)  # Start RFID reading thread
-        temp_thread = threading.Thread(target=sensor_handler.read_temperature, daemon=True)
-        acc_thread = threading.Thread(target=sensor_handler.read_accelerometer, daemon=True)
-        mq3_thread = threading.Thread(target=sensor_handler.read_alcohol_value, daemon=True) 
+        # temp_thread = threading.Thread(target=sensor_handler.read_temperature, daemon=True)
+        # acc_thread = threading.Thread(target=sensor_handler.read_accelerometer, daemon=True)
+        # mq3_thread = threading.Thread(target=sensor_handler.read_alcohol_value, daemon=True) 
         
         # Create video streaming thread with the new run_server method
         video_thread = threading.Thread(target=video_streamer.run_server, daemon=True)
 
         # gps_thread.start()
         rfid_thread.start()  # Start RFID thread
-        temp_thread.start()  # Start temperature thread
+        # temp_thread.start()  # Start temperature thread
         video_thread.start()  # Start video streaming
-        acc_thread.start()
-        mq3_thread.start()
+        # acc_thread.start()
+        # mq3_thread.start()
 
         # Start video recording in a separate thread
         # recording_thread = threading.Thread(target=start_recording, args=("filename.h264",))
@@ -56,11 +56,11 @@ def main():
         # Ensure the main program waits for all threads to finish
         # gps_thread.join()
         rfid_thread.join()  # Wait for RFID thread to finish
-        temp_thread.join()  # Wait for temperature thread to finish
+        # temp_thread.join()  # Wait for temperature thread to finish
         # recording_thread.join()  # Join the recording thread as well
         video_thread.join()
-        acc_thread.join()
-        mq3_thread.join()
+        # acc_thread.join()
+        # mq3_thread.join()
 
     except KeyboardInterrupt:
         # Handle manual shutdown (Ctrl+C)
@@ -76,10 +76,10 @@ def main():
         sensor_handler.cleanup()
         motion_state_handler.cleanup()
         rfid_thread.join()  # Ensure RFID thread completes before exit
-        temp_thread.join()  # Ensure temperature thread completes
+        # temp_thread.join()  # Ensure temperature thread completes
         video_thread.join() # Ensure video thread completes
-        acc_thread.join()
-        mq3_thread.join()
+        # acc_thread.join()
+        # mq3_thread.join()
 
 if __name__ == '__main__':
     main()

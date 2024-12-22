@@ -18,9 +18,9 @@ ACCESS_TOKENS = {
 # PORT = 1883
 # INTERVAL = 3
 
-BROKER = '192.168.156.125'
-PORT = 1883
-INTERVAL = 3
+# BROKER = '192.168.87.125'
+# PORT = 1883
+# INTERVAL = 3
 
 # BROKER = 'invite-priorities-commodities-surge.trycloudflare.com'
 # PORT = 1883
@@ -30,9 +30,9 @@ INTERVAL = 3
 # PORT = 443  # The default port for HTTPS (Cloudflare Tunnel uses TLS)
 # INTERVAL = 3  # Data publish interval
 
-#BROKER = '192.168.31.222'
-#PORT = 1883
-#INTERVAL = 3
+BROKER = '192.168.31.222'
+PORT = 1883
+INTERVAL = 3
 
 # BROKER = '0.tcp.ap.ngrok.io'
 # PORT = 14282
@@ -190,6 +190,7 @@ class MQTTClient:
 		return json.dumps({
 			'Name': user['name'],
 			'Phone number': user['phone_number'],
+   			'license': user['license'],
    			'license plates': self.license_plates,
 			'Company': self.type_car,
 			'Timestamp': timestamp
