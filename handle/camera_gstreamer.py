@@ -202,7 +202,83 @@ class CameraStream:
         self.keyboard_thread.start()
         
         self.start_cloudflared_tunnel()
+        
+        #Hoan change
+        # Add new storage management variables
+        self.storage_limit_mb = 500  # 500MB limit
+        self.continuous_recording = True
+        self.continuous_video_files = deque()
+        self.current_video_writer = None
+        self.video_duration = 300  # 5 minutes per file
+        self.video_start_time = time.time()
+        
+        # Create directory for continuous recording
+        self.continuous_record_dir = os.path.join(self.base_dir, "continuous_recording")
+        os.makedirs(self.continuous_record_dir, exist_ok=True)
+        
+        # Start continuous recording thread
+        self.continuous_record_thread = threading.Thread(target=self._continuous_recording_loop)
+        self.continuous_record_thread.daemon = True
+        self.continuous_record_thread.start()
+        #Hoan changed all innit
+    
+    #Hoan change function from now 
+    
+    def _continuous_recording_loop(self):
+        """Handle continuous recording with storage management"""
+        while self.stream_active:
+            current_time = time.time()
+            
+            # Start new video file if needed
+            if self.current_video_writer is None or (current_time - self.video_start_time) >= self.video_duration:
+                if self.current_video_writer is not None:
+                    self.current_video_writer.release()
+                
+                # Create new video file
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                video_path = os.path.join(self.continuous_record_dir, f'continuous_{timestamp}.avi')
+                self.current_video_writer = cv2.VideoWriter(
+                    video_path,
+                    cv2.VideoWriter_fourcc(*'MJPG'),
+                    self.fps,
+                    (640, 480)
+                )
+                self.continuous_video_files.append(video_path)
+                self.video_start_time = current_time
+                
+                # Check and manage storage limit
+                self._manage_storage()
+            
+            # Write frame if available
+            with frame_lock:
+                if self.frame_buffer:
+                    self.current_video_writer.write(self.frame_buffer[-1])
+            
+            time.sleep(1/self.fps)
 
+    def _manage_storage(self):
+        """Manage storage to keep under the limit"""
+        total_size = 0
+        files_to_keep = []
+        
+        # Calculate total size and identify files to keep
+        for video_file in reversed(self.continuous_video_files):
+            if os.path.exists(video_file):
+                file_size = os.path.getsize(video_file) / (1024 * 1024)  # Convert to MB
+                if total_size + file_size <= self.storage_limit_mb:
+                    total_size += file_size
+                    files_to_keep.append(video_file)
+                else:
+                    try:
+                        os.remove(video_file)
+                        print(f"Removed old video file: {video_file}")
+                    except Exception as e:
+                        print(f"Error removing file {video_file}: {str(e)}")
+        
+        # Update the list of video files
+        self.continuous_video_files = deque(reversed(files_to_keep))
+    #end 2 function Hoan changed
+    
     def _simulate_velocity(self):
         """Simulates velocity changes over time"""
         while self.stream_active and self.use_simulated_velocity:

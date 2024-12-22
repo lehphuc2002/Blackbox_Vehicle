@@ -235,8 +235,8 @@ class GPSModule:
                             self.longitude = longitude
 
                             # Store coordinates and timestamp in buffer
-                            with self.coordinates_lock:
-                                self.coordinates_buffer.append((latitude, longitude, timestamp))
+#                            with self.coordinates_lock:
+#                                self.coordinates_buffer.append((latitude, longitude, timestamp))
                                 
                         except (ValueError, IndexError) as e:
                             print(f"Error processing GPS data: {e}")
@@ -249,8 +249,40 @@ class GPSModule:
             
     def _calculate_velocity(self):
         """
-        Calculate average velocity using only start and end points within the time window.
+        Calculate velocity using current and previous GPS coordinates every 3 seconds.
         """
+        last_send_time = time.time()
+        latitude_GPS_t = None
+        longitude_GPS_t = None
+        
+        while not self._stop_event.is_set():
+            current_time = time.time()
+            
+            # Get current GPS coordinates
+            latitude_GPS, longitude_GPS = self.get_location()  # Assuming this method exists
+            
+            # Calculate velocity every 3 seconds
+            if current_time - last_send_time >= 2:
+                if (longitude_GPS is not None and latitude_GPS is not None and 
+                    longitude_GPS_t is not None and latitude_GPS_t is not None):
+                    
+                    # Calculate time difference
+                    d_t = current_time - last_send_time
+                    
+                    # Calculate distance between previous and current points
+                    d = haversine(longitude_GPS_t, latitude_GPS_t, longitude_GPS, latitude_GPS)
+                    
+                    # Calculate velocity in km/h
+                    self.velocity = (d / d_t) * 3.6
+                else:
+                    self.velocity = 0
+                    
+                # Store current coordinates as previous coordinates for next calculation
+                longitude_GPS_t, latitude_GPS_t = longitude_GPS, latitude_GPS
+                last_send_time = current_time
+                
+            time.sleep(0.1)  # Small sleep to prevent high CPU usage
+        
         # while not self._stop_event.is_set():
             
         #     with self.coordinates_lock:
