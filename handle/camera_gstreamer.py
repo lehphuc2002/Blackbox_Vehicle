@@ -330,7 +330,7 @@ class CameraStream:
                     try:
                         # upload_images_and_generate_html()
                         # print("Successfully uploaded to Firebase")
-                        print("do nothing upload image")
+                        print("Do nothing upload image")
                     except Exception as e:
                         print(f"Error uploading to Firebase: {str(e)}")
         except Exception as e:

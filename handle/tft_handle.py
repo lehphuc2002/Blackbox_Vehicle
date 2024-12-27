@@ -11,13 +11,16 @@ class TFTHandler:
         phone_number = data.get('phone_number', 'None')
         status = data.get('status', 'Unauthorized')
         
+        # Debugging statements
+        print(f"Displaying on TFT: Name: {name}, Status: {status}")
+        
         # Call the draw_tft function from tft_display to update the display
         draw_tft(str(name), str(status))
 
 if __name__ == "__main__":
     # Example of usage
     tft_handler = TFTHandler()
-    user_data = {'name': 'John Doe', 'phone_number': '1234567890'}
+    user_data = {'name': 'John Doe', 'phone_number': '1234567890', 'status': 'Authorized'}
 
     try:
         tft_handler.display_user_info(user_data)

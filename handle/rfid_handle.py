@@ -168,7 +168,7 @@ class RFIDHandler:
                 'accumulated_times': self.accumulated_drive_time,
                 'daily_drive_time': self.daily_drive_time,
                 'daily_reset_time': self.daily_reset_time.isoformat() if self.daily_reset_time else None,
-                'last_rest_time': self.last_rest_time.isoformat() if self.last_rest_time else None  # Add this
+                'last_rest_time': self.last_rest_time.isoformat() if self.last_rest_time else None
             }
             
             # Create backup before writing
@@ -352,7 +352,7 @@ class RFIDHandler:
                                 self.ring_buzzer_pattern('rest_needed')
                                 last_rest_warning = current_time
                 
-                time.sleep(1)  # Move sleep outside the lock
+                time.sleep(1)
                 
             except Exception as e:
                 self.logger.error(f"Error in check_warnings: {e}")
@@ -419,7 +419,7 @@ class RFIDHandler:
             can_start, message = self.start_driving_session(uid_hex)
             if can_start:
                 self.ring_buzzer_pattern('login')
-                status = f"Driving (Total: {accumulated_time/3600:.1f}h)"
+                status = f"Driving Total: {accumulated_time/3600:.1f}h"
                 self.last_warning_time = time.time()
             else:
                 status = message
@@ -476,11 +476,9 @@ class RFIDHandler:
             # Beep for unauthorized card
             self.ring_buzzer(0.1)
             
-            # MQTT publish
             try:
                 payload = self.mqtt_client.create_payload_user_info(self.data)
                 self.mqtt_client.client.publish("v1/devices/me/telemetry", payload, qos=0)
-                print("HEHEHHEHEEHEHHE DONT USER")
             except Exception as e:
                 self.logger.error(f"MQTT publish error in handle_unauthorized_card: {e}")
                 

@@ -474,7 +474,7 @@ def main():
             else: 
                 print("Waiting for location...")
             if velocity is not None:
-                print(f"Current Velocity: {velocity:.2f} m/s")
+                print(f"Current Velocity: {velocity:.2f} km/h")
             else:
                 print("Waiting for velocity data...")
 

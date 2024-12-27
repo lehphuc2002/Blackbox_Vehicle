@@ -18,18 +18,45 @@ from sensors.GPS.GPS_lib import GPSModule
 # from sensors.GPS.gps_simulator import GPSSimulator # Simulate GPS
 
 class SensorBuffer:
-    def __init__(self, max_size=1000):
+    def __init__(self, max_size=1000, max_cache_size=100):
         self.buffer = queue.Queue(maxsize=max_size)
-        # Set the absolute path for the cache file
-        self.cache_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                                     "handle", "sensor_cache.json")
-        self._ensure_cache_directory()
-        self.buffer_lock = threading.Lock()  # Add thread safety
+        self.max_cache_size = max_cache_size
+        # Get absolute path and ensure it's writable
+        try:
+            current_file_path = os.path.abspath(__file__)
+            parent_dir = os.path.dirname(os.path.dirname(current_file_path))
+            self.cache_dir = os.path.join(parent_dir, "handle")
+            self.cache_file = os.path.join(self.cache_dir, "sensor_cache.json")
+            
+            # Create directory if it doesn't exist
+            if not os.path.exists(self.cache_dir):
+                os.makedirs(self.cache_dir, exist_ok=True)
+                print(f"Created cache directory: {self.cache_dir}")
+            
+            # Test write permissions
+            test_file = os.path.join(self.cache_dir, "test_write.tmp")
+            try:
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                os.remove(test_file)
+                print(f"Cache directory is writable: {self.cache_dir}")
+            except Exception as e:
+                print(f"Cache directory is not writable, using /tmp: {e}")
+                self.cache_file = "/tmp/sensor_cache.json"
+                
+        except Exception as e:
+            print(f"Error setting up cache file: {e}")
+            self.cache_file = "/tmp/sensor_cache.json"
+            
+        print(f"Using cache file: {self.cache_file}")
+        self.buffer_lock = threading.Lock()
         
     def _ensure_cache_directory(self):
         """Ensure the cache directory exists"""
         cache_dir = os.path.dirname(self.cache_file)
         os.makedirs(cache_dir, exist_ok=True)
+        print(f"Cache directory ensured: {cache_dir}")
+
 
     def add_data(self, sensor_type, data):
         try:
@@ -38,51 +65,105 @@ class SensorBuffer:
                 'sensor_type': sensor_type,
                 'data': data
             }
+            print(f"Adding data to buffer: {sensor_type}")
+            
+            # Hold lock only for buffer operations
             with self.buffer_lock:
                 if self.buffer.full():
-                    # Remove oldest entry if buffer is full
                     self.buffer.get()
                 self.buffer.put(entry)
                 print(f"Buffered data: {entry}")
-                self._save_to_cache()
+            
+            # Call save_to_cache outside the lock
+            print(f"Calling _save_to_cache...")
+            self._save_to_cache()
+                
         except Exception as e:
-            print(f"Error adding data to buffer: {e}")
+            print(f"Error adding data to buffer: {str(e)}")
+            import traceback
+            print(f"Traceback:\n{traceback.format_exc()}")
 
     def _save_to_cache(self):
+        print("Starting _save_to_cache method...")
+        cache_data = []
+        
+        # Try to acquire lock with timeout
+        print("Attempting to acquire buffer lock...")
+        if not self.buffer_lock.acquire(timeout=2):  # 2 second timeout
+            print("Could not acquire lock after 2 seconds, aborting save")
+            return
+            
         try:
-            with self.buffer_lock:
-                # Convert queue to list for serialization while preserving order
-                cache_data = []
-                temp_buffer = queue.Queue()
+            print("Lock acquired, getting data from buffer...")
+            temp_buffer = queue.Queue()
+            
+            # Get all items from buffer
+            while not self.buffer.empty():
+                item = self.buffer.get()
+                cache_data.append(item)
+                temp_buffer.put(item)
+            
+            # Restore buffer
+            while not temp_buffer.empty():
+                self.buffer.put(temp_buffer.get())
                 
-                while not self.buffer.empty():
-                    item = self.buffer.get()
-                    cache_data.append(item)
-                    temp_buffer.put(item)
+        finally:
+            self.buffer_lock.release()
+            print(f"Lock released. Got {len(cache_data)} items from buffer")
+        
+        # Skip if no data to save
+        if not cache_data:
+            print("No data to save, returning")
+            return
+            
+        # Limit cache size
+        if len(cache_data) > self.max_cache_size:
+            print(f"Limiting cache size from {len(cache_data)} to {self.max_cache_size}")
+            cache_data = cache_data[-self.max_cache_size:]
+        
+        try:
+            # Write to temporary file first
+            temp_file = f"{self.cache_file}.tmp"
+            print(f"Attempting to write to temporary file: {temp_file}")
+            
+            try:
+                with open(temp_file, 'w') as f:
+                    json.dump(cache_data, f, indent=2)
+                print(f"Successfully wrote to temporary file")
                 
-                # Restore the buffer
-                while not temp_buffer.empty():
-                    self.buffer.put(temp_buffer.get())
-
-            # Write to file with proper formatting
-            with open(self.cache_file, 'w') as f:
-                json.dump(cache_data, f, indent=2)
-                print(f"Cache saved to {self.cache_file}") 
+                # If write successful, rename to actual file
+                print(f"Attempting to rename {temp_file} to {self.cache_file}")
+                os.replace(temp_file, self.cache_file)
+                print(f"Successfully saved {len(cache_data)} items to {self.cache_file}")
+                
+            except Exception as write_error:
+                print(f"Error writing to primary cache file: {write_error}")
+                # Try fallback location
+                fallback_file = "/tmp/sensor_cache.json"
+                print(f"Attempting to write to fallback location: {fallback_file}")
+                with open(fallback_file, 'w') as f:
+                    json.dump(cache_data, f, indent=2)
+                print(f"Successfully saved to fallback location: {fallback_file}")
+                
         except Exception as e:
-            print(f"Error saving to cache: {e}")
-
+            print(f"Critical error in _save_to_cache: {e}")
+            import traceback
+            print(f"Full traceback:\n{traceback.format_exc()}")
+            
     def load_cache(self):
         try:
             if os.path.exists(self.cache_file):
                 with open(self.cache_file, 'r') as f:
                     cache_data = json.load(f)
                     print(f"Loaded cache: {cache_data}")
+                    print("HEHEHEHHE")
                     # Sort data by timestamp before loading
                     cache_data.sort(key=lambda x: x['timestamp'])
                     for entry in cache_data:
                         self.add_data(entry['sensor_type'], entry['data'])
             else:
                 print("No cache file found, starting with empty buffer")
+                print("hahahahahaahhaha")
         except Exception as e:
             print(f"Error loading cache: {e}")
 
@@ -93,16 +174,40 @@ class SensorBuffer:
                 pending_data.append(self.buffer.get())
         return pending_data
     
-    def clear_cache(self):
-        """Clear the cache file and buffer"""
-        with self.buffer_lock:
-            while not self.buffer.empty():
-                self.buffer.get()
+    def remove_published_data(self, published_entries):
+        """Remove successfully published entries from the cache file"""
+        print(f"Removing {len(published_entries)} published entries from cache")
+        try:
+            # Read current cache
+            current_cache = []
             if os.path.exists(self.cache_file):
-                try:
+                with open(self.cache_file, 'r') as f:
+                    current_cache = json.load(f)
+
+            # Create set of published timestamps for efficient lookup
+            published_timestamps = {entry['timestamp'] for entry in published_entries}
+
+            # Filter out published entries
+            updated_cache = [
+                entry for entry in current_cache 
+                if entry['timestamp'] not in published_timestamps
+            ]
+
+            # Save updated cache
+            if len(updated_cache) > 0:
+                with open(self.cache_file, 'w') as f:
+                    json.dump(updated_cache, f, indent=2)
+                print(f"Updated cache file with {len(updated_cache)} remaining entries")
+            else:
+                # If no entries remain, delete the cache file
+                if os.path.exists(self.cache_file):
                     os.remove(self.cache_file)
-                except Exception as e:
-                    print(f"Error clearing cache file: {e}")
+                print("Cache file deleted as all entries were published")
+
+        except Exception as e:
+            print(f"Error removing published data from cache: {e}")
+            import traceback
+            print(f"Traceback:\n{traceback.format_exc()}")
 
 
 class SensorHandler:
@@ -112,7 +217,7 @@ class SensorHandler:
         self.mq3_sensor = MQ3Sensor(adc_channel=0, gain=1, vcc=5.0)
         
         # Initialize GPS reader
-        # self.gps = GPSReader()  # Uncomment and implement this line
+        # self.gps = GPSReader()
         
         self.running = True  # Flag to control sensor reading loops
         self.last_send_time = time.time()  # Last telemetry send time
@@ -123,9 +228,6 @@ class SensorHandler:
         self.status = "Normal"
         
         # Accelerometer thresholds for accident detection
-        # self.ACC_X_THRESHOLD = 15
-        # self.ACC_Y_THRESHOLD = 7
-        # self.ACC_Z_THRESHOLD = 4
         self.ACC_THRESHOLD = 2.0 * 9.8 # remmember changing in camera_gstreamer.py threshold acc
 
         # Use the passed MQTT client instance
@@ -165,7 +267,8 @@ class SensorHandler:
                 return True
             else:
                 print(f"Failed to publish {sensor_type} data. Error code: {ret.rc}")
-                # self.sensor_buffer.add_data(sensor_type, payload)
+                print(f"Data being buffered: {payload}")
+                self.sensor_buffer.add_data(sensor_type, payload)
                 return False
         else:
             print(f"No connection. Buffering {sensor_type} data...")
@@ -177,15 +280,26 @@ class SensorHandler:
         while self.running:
             if self.connection_handler.get_connection_status():
                 pending_data = self.sensor_buffer.get_pending_data()
+                if not pending_data:
+                    time.sleep(5)
+                    continue
+
+                successfully_published = []
                 for entry in pending_data:
                     ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", entry['data'])
                     if ret.rc == paho.MQTT_ERR_SUCCESS:
                         print(f"Published buffered {entry['sensor_type']} data from {entry['timestamp']}")
+                        successfully_published.append(entry)
                     else:
                         print(f"Re-buffering failed data: {entry}")
                         # Put back in buffer if publish fails
                         self.sensor_buffer.add_data(entry['sensor_type'], entry['data'])
-            time.sleep(5)  # Check every 5 seconds
+
+                # Remove successfully published entries from cache
+                if successfully_published:
+                    self.sensor_buffer.remove_published_data(successfully_published)
+
+            time.sleep(5)
             
     def moving_average(self, values):
         """Takes a list of values and returns their average. It helps smooth out noisy acceleration readings."""
@@ -285,7 +399,7 @@ class SensorHandler:
                 """
                 ######################## End Example ########################
                 
-                self.velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
+                # self.velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
                 # print("Velocity real is:", self.velocity)
 
                 # Check for potential accidents
@@ -319,10 +433,9 @@ class SensorHandler:
         """Continuously read temperature data and publish it."""
         while self.running:
             try:
-                temp_c, temp_f = read_temp()  # Use the imported function
+                temp_c, temp_f = read_temp()
                 print(f'Temperature: {temp_c:.2f} °C, {temp_f:.2f} °F')
                 
-                # MQTT publish payload for temperature
                 payload = self.mqtt_client.create_payload_temp(temp_c)
                 # ret = self.mqtt_client.publish(payload)
                 # if ret.rc == paho.MQTT_ERR_SUCCESS:
@@ -350,15 +463,13 @@ class SensorHandler:
             try:
                 current_time = time.time()
                 alcohol_value = self.mq3_sensor.get_concentration()
-                
-                # Check if alcohol value > 50
+
                 if alcohol_value > 50:
                     payload = self.mqtt_client.create_payload_alcohol(round(alcohol_value, 2))
                     self._publish_data(payload, "alcohol")
                     print("Publish alcohol value immediately!")
                     self.ring_buzzer(3)
-                    
-                # Check if 5 seconds have passed
+
                 if (current_time - last_publish_time) >= 5:
                     payload = self.mqtt_client.create_payload_alcohol(round(alcohol_value, 2))
                     self._publish_data(payload, "alcohol") 
@@ -368,7 +479,7 @@ class SensorHandler:
             except Exception as e:
                 print(f"Error reading alcohol: {e}")
             
-            threading.Event().wait(1)  # Check every 1 second
+            threading.Event().wait(1)
 
     def read_gps(self):
         """Continuously read and log GPS data."""
@@ -381,7 +492,7 @@ class SensorHandler:
             while self.running:
                 while self.gps.get_velocity() is not None:
                     try:
-                        # self.velocity = self.gps.get_velocity()
+                        self.velocity = self.gps.get_velocity()
                         print(f"self.velocity at sensors_handle.py is {self.velocity}")
                         # self.velocity_accident = self.gps.instant_velocity
                         # print(f"self.velocity_accident at sensors_handle.py is {self.velocity_accident}")
@@ -406,7 +517,7 @@ class SensorHandler:
                         else: 
                             print("Waiting for location...")
                         if self.velocity is not None:
-                            print(f"Current Velocity: {self.velocity:.2f} m/s")
+                            print(f"Current Velocity: {self.velocity:.2f} km/h")
                         else:
                             print("Waiting for velocity data...")
                     except Exception as e:

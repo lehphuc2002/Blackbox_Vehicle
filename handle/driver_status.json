@@ -1,0 +1,11 @@
+{
+    "timestamp": "2024-12-25T23:07:45.137866",
+    "current_driver": null,
+    "accumulated_times": {
+        "091E468C": 8.006138,
+        "4D834302": 5.122073
+    },
+    "daily_drive_time": 516.3096270000001,
+    "daily_reset_time": "2024-12-25T19:16:42.085894",
+    "last_rest_time": "2024-12-25T23:07:44.115712"
+}
