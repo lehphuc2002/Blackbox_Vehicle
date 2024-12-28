@@ -7,7 +7,6 @@ from iot.mqtt.publish import FirebaseClient
 from handle.camera_gstreamer import initialize_camera
 from handle.record_handle import RecordHandler
 from sensors.MQ3_ADS1115.MQ3_ADS115 import MQ3Sensor
-from iot.mqtt.publish import MQTTClient
 import handle.connection_internet_handle as conn_handle 
 
 def main():
@@ -24,8 +23,8 @@ def main():
     rfid_handler = RFIDHandler(mqtt_client)  # Initialize RFID handler
     record_handler = RecordHandler()
     video_streamer = initialize_camera(mqtt_client, record_handler, sensor_handler)
-    motion_state_handler = MotionStateHandler(sensor_handler)
-    mq3_sensor = MQ3Sensor(adc_channel=0, gain=1, vcc=5.0)
+    # motion_state_handler = MotionStateHandler(sensor_handler)
+    # mq3_sensor = MQ3Sensor(adc_channel=0, gain=1, vcc=5.0)
 
     try:
         # Create and start threads for GPS, accelerometer, and RFID handling
@@ -34,7 +33,7 @@ def main():
         rfid_thread = threading.Thread(target=rfid_handler.read_rfid)  # Start RFID reading thread
         temp_thread = threading.Thread(target=sensor_handler.read_temperature)
         acc_thread = threading.Thread(target=sensor_handler.read_accelerometer)
-        mq3_thread = threading.Thread(target=mq3_sensor.start_reading, daemon=True) 
+        # mq3_thread = threading.Thread(target=mq3_sensor.start_reading, daemon=True) 
         
         # Create video streaming thread with the new run_server method
         video_thread = threading.Thread(target=video_streamer.run_server, daemon=True)
@@ -44,11 +43,11 @@ def main():
         temp_thread.start()  # Start temperature thread
         video_thread.start()  # Start video streaming
         acc_thread.start()
-        mq3_thread.start()
+        # mq3_thread.start()
 
         # Start video recording in a separate thread
-        #recording_thread = threading.Thread(target=start_recording, args=("filename.h264",))
-        #recording_thread.start()
+        # recording_thread = threading.Thread(target=start_recording, args=("filename.h264",))
+        # recording_thread.start()
         
         print("All services started successfully")
         
@@ -56,10 +55,10 @@ def main():
         gps_thread.join()
         rfid_thread.join()  # Wait for RFID thread to finish
         temp_thread.join()  # Wait for temperature thread to finish
-        recording_thread.join()  # Join the recording thread as well
+        # recording_thread.join()  # Join the recording thread as well
         video_thread.join()
         acc_thread.join()
-        mq3_thread.join()
+        # mq3_thread.join()
 
     except KeyboardInterrupt:
         # Handle manual shutdown (Ctrl+C)
@@ -69,16 +68,16 @@ def main():
         sensor_handler.cleanup()  # Clean up sensor resources
         rfid_handler.stop_reading()  # Stop RFID reading thread
         video_streamer.stop()
-        mq3_sensor.stop_reading()
+        # mq3_sensor.stop_reading()
         
         # Clean up resources for each handler
         sensor_handler.cleanup()
-        motion_state_handler.cleanup()
+        # motion_state_handler.cleanup()
         rfid_thread.join()  # Ensure RFID thread completes before exit
         temp_thread.join()  # Ensure temperature thread completes
         video_thread.join() # Ensure video thread completes
         acc_thread.join()
-        mq3_thread.join()
+        # mq3_thread.join()
 
 if __name__ == '__main__':
     main()

@@ -15,7 +15,7 @@ import random
 from handle.record_handle import RecordHandler
 import smtplib
 from email.message import EmailMessage
-from handle.email_config import SMTP_SERVER, SMTP_PORT, SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL
+# from handle.email_config import SMTP_SERVER, SMTP_PORT, SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL
 from handle.sensors_handle import SensorHandler  # Import your SensorHandler class
 
 
@@ -404,29 +404,26 @@ class CameraStream:
             key = input("Press 'q' to trigger recording (press 'exit' to quit): ").strip().lower()
             if key == 'q':
                 print("Keyboard 'q' pressed")
-                # self.trigger_recording()
+                self.trigger_recording()
                 
                 # Prepare email message
-                msg = self.send_alert_email()
-                # Start email sending in a separate thread
-                email_thread = threading.Thread(
-                    target=self.send_email_thread,
-                    args=(msg,),
-                    daemon=True
-                )
-                email_thread.start()
+                # msg = self.send_alert_email()
+                # # Start email sending in a separate thread
+                # email_thread = threading.Thread(
+                #     target=self.send_email_thread,
+                #     args=(msg,),
+                #     daemon=True
+                # )
+                # email_thread.start()
                 
                 self.accident_signal = 1
-                payload = self.mqtt_client.create_payload_accident_signal(self.accident_signal)
-                ret = self.mqtt_client.publish(payload)
-                if ret.rc == paho.MQTT_ERR_SUCCESS:
-                    print(f"Accident signal published successfully. Its value is {self.accident_signal}")
-                    self.accident_signal = 0
-                    payload = self.mqtt_client.create_payload_accident_signal(self.accident_signal) # send 0 to turn off accident signal
-                    ret = self.mqtt_client.publish(payload)
-                    print(f"Accident signal down published successfully. Its value is {self.accident_signal}")
-                else:
-                    print(f"Failed to publish accident signal, error code: {ret.rc}")
+                payload = self.firebaseclient.create_payload_accident_signal(self.accident_signal)
+                self.firebaseclient.publish("Accident", payload)
+                print(f"Accident signal published successfully. Its value is {self.accident_signal}")
+                self.accident_signal = 0
+                payload = self.firebaseclient.create_payload_accident_signal(self.accident_signal) # send 0 to turn off accident signal
+                self.firebaseclient.publish("Accident", payload)
+                print(f"Accident signal down published successfully. Its value is {self.accident_signal}")
                 
             elif key == 'exit':
                 print("Exiting keyboard control")

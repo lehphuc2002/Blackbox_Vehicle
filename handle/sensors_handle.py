@@ -159,7 +159,6 @@ class SensorHandler:
         self.accel_thread.start()
         self.linear_accel_thread.start()
         
-        self.gps = GPSSimulator()
         self.gps_thread = threading.Thread(target=self.read_gps, daemon=True)
         self.gps_thread.start()
 
@@ -244,7 +243,7 @@ class SensorHandler:
 
             current_time = time.time()
             dt = current_time - self.last_send_time
-            self.last_send_time = current_time
+            
 
             # If acceleration is very small, treat it as zero
             smooth_ax = 0 if abs(smooth_ax) < self.acc_threshold else smooth_ax
@@ -290,7 +289,7 @@ class SensorHandler:
             if any(abs(a) > threshold for a, threshold in zip((ax, ay, az),
                 (self.ACC_X_THRESHOLD, self.ACC_Y_THRESHOLD, self.ACC_Z_THRESHOLD))):
                 status = 'Warning Accident'
-                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status)
+                payload = self.firebaseclient.create_payload_motion_data(ax, ay, az, self.velocity, status)
                 self._publish_data(payload, "accelerometer", priority=True)
             payload = {"speed": self.velocity}
             self._publish_data(payload, "speed", priority=True)
@@ -298,9 +297,10 @@ class SensorHandler:
             # Publish telemetry data every ... seconds
             if current_time - self.last_send_time >= 4:
                 status = "Normal"  # Replace with your status logic
-                payload = self.mqtt_client.create_payload_motion_data(ax, ay, az, self.velocity, status)
+                payload = self.firebaseclient.create_payload_motion_data(ax, ay, az, self.velocity, status)
                 self._publish_data(payload, "accelerometer")
                 self.last_send_time = current_time  # Update last send time
+
 
             # threading.Event().wait(0.015)  # Short delay (~66Hz loop)
             threading.Event().wait(5)
@@ -310,9 +310,6 @@ class SensorHandler:
         while self.running:
             try:
                 temp_c, temp_f = read_temp()  # Use the imported function
-                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                data = {"timestamp": timestamp}
-                self._publish_data(data, "")
                 payload = {"temperature": temp_c}
                 self._publish_data(payload, "temperature")
             except Exception as e:
@@ -327,8 +324,8 @@ class SensorHandler:
         while self.running:
             try:
                 self.latitude, self.longitude = self.gps.get_current_location()
-                payload = self.mqtt_client.create_payload_gps(self.longitude, self.latitude)
-                # ret = self.mqtt_client.publish(payload)  # Publish GPS data
+                payload = self.firebaseclient.create_payload_gps(self.longitude, self.latitude)
+                # ret = self.firebaseclient.publish(payload)  # Publish GPS data
                 # print("GPS data published successfully" if ret.rc == paho.MQTT_ERR_SUCCESS 
                 #           else f"Failed with error code: {ret.rc}")
                 self._publish_data(payload, "gps")

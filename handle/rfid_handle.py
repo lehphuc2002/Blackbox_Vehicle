@@ -26,7 +26,7 @@ class RFIDHandler:
         self.data = {'name': None, 'phone_number': None}
         self.first_time = 0
         self.stop_event = threading.Event()
-        #self.tft_handler = TFTHandler()
+        # self.tft_handler = TFTHandler()
 
         # Use the passed MQTT client instance
         self.mqtt_client = mqtt_client
