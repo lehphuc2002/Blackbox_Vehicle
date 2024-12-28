@@ -194,6 +194,17 @@ class RFIDHandler:
             with open(self.driver_status_file, 'r') as f:
                 status = json.load(f)
 
+            # Validate required fields
+            required_fields = ['timestamp', 'current_driver', 'accumulated_times']
+            if not all(field in status for field in required_fields):
+                raise ValueError("Missing required fields in status file")
+            
+            # Validate timestamp format
+            try:
+                last_time = datetime.fromisoformat(status['timestamp'])
+            except ValueError:
+                raise ValueError("Invalid timestamp format")
+            
             # Calculate time difference since last save
             last_time = datetime.fromisoformat(status['timestamp'])
             current_time = datetime.now()
@@ -351,12 +362,40 @@ class RFIDHandler:
                                 self.logger.info("Rest needed warning - beeping")
                                 self.ring_buzzer_pattern('rest_needed')
                                 last_rest_warning = current_time
+                    
+                    # Publish continuous drive time
+                    if self.current_driver and self.drive_start_time:
+                        self.publish_continuous_drive_time()
                 
                 time.sleep(1)
                 
             except Exception as e:
                 self.logger.error(f"Error in check_warnings: {e}")
                 time.sleep(1)
+    
+    def publish_continuous_drive_time(self):
+        """Publish continuous drive time to ThingsBoard"""
+        try:
+            current_time = datetime.now()
+            if self.drive_start_time:
+                continuous_drive_time = (current_time - self.drive_start_time).total_seconds()
+
+                # Convert continuous_drive_time to hours and minutes
+                hours, remainder = divmod(continuous_drive_time, 3600)
+                minutes, _ = divmod(remainder, 60)
+                formatted_drive_time = f"{int(hours)}h{int(minutes)}m"
+
+                print(f"continuous_drive_time is {formatted_drive_time}")
+                
+                # Create payload with formatted_drive_time
+                payload = self.mqtt_client.create_payload_continuous_drive(formatted_drive_time)
+                ret = self.mqtt_client.client.publish("v1/devices/me/telemetry", payload, qos=0)
+                if ret.rc == paho.MQTT_ERR_SUCCESS:
+                    self.logger.info("continuous_drive_time published successfully")
+                else:
+                    self.logger.error(f"Failed to publish continuous_drive_time data. Error code: {ret.rc}")
+        except Exception as e:
+            self.logger.error(f"Error publishing continuous drive time: {e}")
     
     def ring_buzzer_pattern(self, pattern):
         """
