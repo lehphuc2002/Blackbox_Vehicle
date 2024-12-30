@@ -1,22 +1,15 @@
-import os
-from datetime import datetime
 
-def generate_html(customer_name, image_data):
-    customer_name_on_web = customer_name.replace("_", " ").title()
-    current_date = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    
-    html_content = f'''
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta name="description" content="Professional Vehicle Monitoring System - {customer_name}">
-        <title>Vehicle Monitoring - {customer_name}</title>
+        <meta name="description" content="Professional Vehicle Monitoring System - customer_Phuc">
+        <title>Vehicle Monitoring - customer_Phuc</title>
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
             
-            :root {{
+            :root {
                 --primary-color: #1a56db;
                 --secondary-color: #1e429f;
                 --background: #f3f4f6;
@@ -31,15 +24,15 @@ def generate_html(customer_name, image_data):
                 --warning: #dc2626;
                 --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
                 --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            }}
+            }
 
-            * {{
+            * {
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
-            }}
+            }
 
-            body {{
+            body {
                 font-family: 'Roboto', sans-serif;
                 background: var(--background);
                 color: var(--text-primary);
@@ -47,112 +40,112 @@ def generate_html(customer_name, image_data):
                 display: flex;
                 flex-direction: column;
                 min-height: 100vh;
-            }}
+            }
 
-            .header {{
+            .header {
                 background: var(--header-bg);
                 color: var(--text-light);
                 padding: 1.5rem 2rem;
                 box-shadow: var(--shadow-md);
-            }}
+            }
 
-            .header-content {{
+            .header-content {
                 max-width: 1400px;
                 margin: 0 auto;
-            }}
+            }
 
-            .dashboard-info {{
+            .dashboard-info {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 margin-bottom: 1rem;
                 flex-wrap: wrap;
                 gap: 1rem;
-            }}
+            }
 
-            .dashboard-title {{
+            .dashboard-title {
                 flex: 1;
-            }}
+            }
 
-            .dashboard-meta {{
+            .dashboard-meta {
                 text-align: right;
                 font-size: 0.875rem;
                 color: #93c5fd;
-            }}
+            }
 
-            h1 {{
+            h1 {
                 font-size: 1.75rem;
                 font-weight: 500;
                 margin-bottom: 0.5rem;
-            }}
+            }
 
-            .subtitle {{
+            .subtitle {
                 color: #93c5fd;
                 font-size: 1rem;
                 font-weight: 400;
-            }}
+            }
 
-            .main-content {{
+            .main-content {
                 max-width: 1400px;
                 margin: 2rem auto;
                 padding: 0 2rem;
-            }}
+            }
 
-            .stats-container {{
+            .stats-container {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
                 gap: 1rem;
                 margin-bottom: 2rem;
-            }}
+            }
 
-            .stat-card {{
+            .stat-card {
                 background: var(--surface-1);
                 padding: 1.5rem;
                 border-radius: 8px;
                 box-shadow: var(--shadow-sm);
                 border: 1px solid var(--border-color);
-            }}
+            }
 
-            .stat-title {{
+            .stat-title {
                 color: var(--text-secondary);
                 font-size: 0.875rem;
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
-            }}
+            }
 
-            .stat-value {{
+            .stat-value {
                 font-size: 1.5rem;
                 font-weight: 500;
                 color: var(--primary-color);
                 margin-top: 0.5rem;
-            }}
+            }
 
-            .gallery-container {{
+            .gallery-container {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
                 gap: 1.5rem;
-            }}
+            }
 
-            .gallery-item {{
+            .gallery-item {
                 background: var(--surface-1);
                 border-radius: 8px;
                 overflow: hidden;
                 box-shadow: var(--shadow-sm);
                 border: 1px solid var(--border-color);
                 transition: transform 0.2s ease, box-shadow 0.2s ease;
-            }}
+            }
 
-            .gallery-item:hover {{
+            .gallery-item:hover {
                 transform: translateY(-2px);
                 box-shadow: var(--shadow-md);
-            }}
+            }
 
-            .image-container {{
+            .image-container {
                 position: relative;
                 padding-top: 66.67%; /* 3:2 aspect ratio */
-            }}
+            }
 
-            .gallery-item img {{
+            .gallery-item img {
                 position: absolute;
                 top: 0;
                 left: 0;
@@ -160,32 +153,32 @@ def generate_html(customer_name, image_data):
                 height: 100%;
                 object-fit: cover;
                 display: block;
-            }}
+            }
 
-            .metadata {{
+            .metadata {
                 padding: 1rem;
                 background: var(--surface-2);
                 border-top: 1px solid var(--border-color);
-            }}
+            }
 
-            .metadata-time {{
+            .metadata-time {
                 color: var(--text-secondary);
                 font-size: 0.875rem;
                 display: flex;
                 align-items: center;
                 gap: 0.5rem;
-            }}
+            }
 
-            .speed-tag {{
+            .speed-tag {
                 background: var(--warning);
                 color: white;
                 padding: 0.25rem 0.75rem;
                 border-radius: 4px;
                 font-size: 0.75rem;
                 font-weight: 500;
-            }}
+            }
 
-            .modal {{
+            .modal {
                 display: none;
                 position: fixed;
                 top: 0;
@@ -195,17 +188,17 @@ def generate_html(customer_name, image_data):
                 background: rgba(0, 0, 0, 0.85);
                 z-index: 1000;
                 padding: 2rem;
-            }}
+            }
 
-            .modal-content {{
+            .modal-content {
                 max-width: 90%;
                 max-height: 90vh;
                 margin: auto;
                 display: block;
                 border-radius: 4px;
-            }}
+            }
 
-            .modal-close {{
+            .modal-close {
                 position: fixed;
                 top: 1.5rem;
                 right: 1.5rem;
@@ -221,22 +214,22 @@ def generate_html(customer_name, image_data):
                 font-size: 1.5rem;
                 border: 1px solid rgba(255, 255, 255, 0.2);
                 transition: background-color 0.2s ease;
-            }}
+            }
 
-            .modal-close:hover {{
+            .modal-close:hover {
                 background: rgba(255, 255, 255, 0.2);
-            }}
+            }
 
-            footer {{
+            footer {
                 margin-top: auto;
                 padding: 1.5rem;
                 background: var(--surface-1);
                 border-top: 1px solid var(--border-color);
                 text-align: center;
                 color: var(--text-secondary);
-            }}
+            }
 
-            .footer-content {{
+            .footer-content {
                 max-width: 1400px;
                 margin: 0 auto;
                 display: flex;
@@ -244,40 +237,40 @@ def generate_html(customer_name, image_data):
                 align-items: center;
                 flex-wrap: wrap;
                 gap: 1rem;
-            }}
+            }
 
-            .footer-logo {{
+            .footer-logo {
                 font-weight: 500;
                 color: var(--primary-color);
-            }}
+            }
 
-            @media (max-width: 768px) {{
-                .header {{
+            @media (max-width: 768px) {
+                .header {
                     padding: 1rem;
-                }}
+                }
 
-                .main-content {{
+                .main-content {
                     padding: 0 1rem;
                     margin: 1rem auto;
-                }}
+                }
 
-                .dashboard-info {{
+                .dashboard-info {
                     flex-direction: column;
                     align-items: flex-start;
-                }}
+                }
 
-                .dashboard-meta {{
+                .dashboard-meta {
                     text-align: left;
-                }}
+                }
 
-                .gallery-container {{
+                .gallery-container {
                     gap: 1rem;
-                }}
+                }
 
-                .modal {{
+                .modal {
                     padding: 1rem;
-                }}
-            }}
+                }
+            }
         </style>
     </head>
     <body>
@@ -286,11 +279,11 @@ def generate_html(customer_name, image_data):
                 <div class="dashboard-info">
                     <div class="dashboard-title">
                         <h1>Vehicle Speed Monitoring System</h1>
-                        <p class="subtitle">Monitoring Report for {customer_name_on_web}</p>
+                        <p class="subtitle">Monitoring Report for Customer Phuc</p>
                     </div>
                     <div class="dashboard-meta">
-                        <div>Report Generated: {current_date}</div>
-                        <div>System ID: VMS-{hash(customer_name)%1000:03d}</div>
+                        <div>Report Generated: 2024-12-29 19:37:49 UTC</div>
+                        <div>For License Plates: 74D1-14515</div>
                     </div>
                 </div>
             </div>
@@ -300,35 +293,52 @@ def generate_html(customer_name, image_data):
             <div class="stats-container">
                 <div class="stat-card">
                     <div class="stat-title">Total Violations</div>
-                    <div class="stat-value">{len(image_data)}</div>
+                    <div class="stat-value">3</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-title">Latest Detection</div>
-                    <div class="stat-value">{image_data[-1][1] if image_data else 'N/A'}</div>
+                    <div class="stat-value">2024-12-29 19:37:47</div>
                 </div>
             </div>
 
             <div class="gallery-container">
-'''
 
-    # Loop through images and add them to the gallery
-    for url, time, _ in image_data:
-        html_content += f'''
-            <article class="gallery-item" onclick="openModal('{url}')">
+            <article class="gallery-item" onclick="openModal('https://firebasestorage.googleapis.com/v0/b/black-box-image-push.appspot.com/o/customer_Phuc%2Fimage_20241229_193747_speed_45.2.jpg?alt=media')">
                 <div class="image-container">
-                    <img src="{url}" alt="Speed violation capture" loading="lazy">
+                    <img src="https://firebasestorage.googleapis.com/v0/b/black-box-image-push.appspot.com/o/customer_Phuc%2Fimage_20241229_193747_speed_45.2.jpg?alt=media" alt="Speed violation capture" loading="lazy">
                 </div>
                 <div class="metadata">
                     <div class="metadata-time">
-                        <span>{time}</span>
+                        <span>2024-12-29 19:37:47</span>
                         <span class="speed-tag">Speed Violation</span>
                     </div>
                 </div>
             </article>
-'''
-    
-    # Add modal and close the HTML content
-    html_content += '''
+
+            <article class="gallery-item" onclick="openModal('https://firebasestorage.googleapis.com/v0/b/black-box-image-push.appspot.com/o/customer_Phuc%2Fimage_20241229_193035_speed_55.3.jpg?alt=media')">
+                <div class="image-container">
+                    <img src="https://firebasestorage.googleapis.com/v0/b/black-box-image-push.appspot.com/o/customer_Phuc%2Fimage_20241229_193035_speed_55.3.jpg?alt=media" alt="Speed violation capture" loading="lazy">
+                </div>
+                <div class="metadata">
+                    <div class="metadata-time">
+                        <span>2024-12-29 19:30:35</span>
+                        <span class="speed-tag">Speed Violation</span>
+                    </div>
+                </div>
+            </article>
+
+            <article class="gallery-item" onclick="openModal('https://firebasestorage.googleapis.com/v0/b/black-box-image-push.appspot.com/o/customer_Phuc%2Fimage_20241215_154859_speed_54.1.jpg?alt=media')">
+                <div class="image-container">
+                    <img src="https://firebasestorage.googleapis.com/v0/b/black-box-image-push.appspot.com/o/customer_Phuc%2Fimage_20241215_154859_speed_54.1.jpg?alt=media" alt="Speed violation capture" loading="lazy">
+                </div>
+                <div class="metadata">
+                    <div class="metadata-time">
+                        <span>2024-12-15 15:48:59</span>
+                        <span class="speed-tag">Speed Violation</span>
+                    </div>
+                </div>
+            </article>
+
             </div>
         </main>
 
@@ -443,13 +453,4 @@ def generate_html(customer_name, image_data):
         </script>
     </body>
     </html>
-    '''
-    # Define the path to save the HTML file in the public folder
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    public_folder_path = os.path.join(current_dir, "public", f"{customer_name}_monitoring.html")
-
-    # Save the HTML file
-    with open(public_folder_path, 'w', encoding='utf-8') as f:
-        f.write(html_content)
-
-    print(f"Monitoring dashboard for {customer_name} created at 'public/{customer_name}_monitoring.html'")
+    

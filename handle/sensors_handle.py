@@ -156,14 +156,12 @@ class SensorBuffer:
                 with open(self.cache_file, 'r') as f:
                     cache_data = json.load(f)
                     print(f"Loaded cache: {cache_data}")
-                    print("HEHEHEHHE")
                     # Sort data by timestamp before loading
                     cache_data.sort(key=lambda x: x['timestamp'])
                     for entry in cache_data:
                         self.add_data(entry['sensor_type'], entry['data'])
             else:
                 print("No cache file found, starting with empty buffer")
-                print("hahahahahaahhaha")
         except Exception as e:
             print(f"Error loading cache: {e}")
 
@@ -228,7 +226,7 @@ class SensorHandler:
         self.status = "Normal"
         
         # Accelerometer thresholds for accident detection
-        self.ACC_THRESHOLD = 2.0 * 9.8 # remmember changing in camera_gstreamer.py threshold acc
+        self.ACC_THRESHOLD = 2.5 * 9.8 # remmember changing in camera_gstreamer.py threshold acc
 
         # Use the passed MQTT client instance
         self.mqtt_client = mqtt_client
@@ -313,12 +311,18 @@ class SensorHandler:
         while self.running:
             while self.bno055.accel_data is not None:
                 ax, ay, az = self.bno055.accel_data 
+                if (ax > 50 or ay > 50 or az > 50):
+                    continue
+                
                 self.acc_detect_accident = math.sqrt(ax**2 + ay**2 + az**2)
+                if (self.acc_detect_accident > 50):
+                    continue
+                
                 lax, lay, laz = self.bno055.linear_accel_data
+                if (lax > 50 or lay > 50 or laz > 50):
+                    continue
                 self.acc_sqrt_linear = math.sqrt(lax**2 + lay**2 + laz**2)
                 
-                if (ax > 100 or ay > 100 or az > 100):
-                    continue
                 # print("Accelerometer:", ax, ay, az)
                 # print("Linear Accelerometer:", lax, lay, laz)
 
@@ -400,7 +404,7 @@ class SensorHandler:
                 ######################## End Example ########################
                 
                 # self.velocity = math.sqrt(self.vx**2 + self.vy**2 + self.vz**2) * 3.6  # Convert to km/h
-                # print("Velocity real is:", self.velocity)
+                # # print("Velocity real is:", self.velocity)
 
                 # Check for potential accidents
                 if self.acc_detect_accident >= self.ACC_THRESHOLD:

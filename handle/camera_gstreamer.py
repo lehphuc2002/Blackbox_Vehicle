@@ -12,11 +12,11 @@ import numpy as np
 import random
 import paho.mqtt.client as paho
 import smtplib
+import atexit
 
 from collections import deque
 from datetime import datetime
 from twilio.rest import Client
-
 
 from iot.firebase.push_image import upload_images_and_generate_html
 from handle.record_handle import RecordHandler
@@ -35,7 +35,7 @@ active_viewers = set()
 server_running = False
 
 # Constants
-ACCEL_THRESHOLD = 1.2 * 9.8 # also remember changing threshold acc in sensors_handle.py
+ACCEL_THRESHOLD = 2.5 * 9.8 # also remember changing threshold acc in sensors_handle.py
 SPEED_DROP_THRESHOLD = 0
 
 class AccidentDetector:
@@ -45,7 +45,7 @@ class AccidentDetector:
         # self.SPEED_DROP_THRESHOLD = 15    # Sudden speed drop threshold (km/h)
         
         # Acceleration processing
-        self.acc_window = deque(maxlen=5)  # Store last 5 acc readings (~75ms at 66Hz)
+        self.acc_window = deque(maxlen=6)  # Store last 5 acc readings (~75ms at 66Hz)
         self.acc_timestamp = deque(maxlen=5)
         self.potential_accident = False
         self.accident_timestamp = None
@@ -59,19 +59,21 @@ class AccidentDetector:
         self.lock = threading.Lock()
 
     def process_acceleration(self, acc_value, timestamp):
-        """Process incoming acceleration data (called at ~66Hz)"""
         with self.lock:
+            if self.potential_accident: # just add here
+                return "NORMAL" # just add here 
+            
             self.acc_window.append(abs(acc_value))
             self.acc_timestamp.append(timestamp)
             
-            # Filter noise: Check if we have 3 readings above threshold in our window
+            # Filter noise: Check if we have 2 readings above threshold in our window
             high_acc_count = sum(1 for acc in self.acc_window if acc > ACCEL_THRESHOLD)
-            # print(f"high_acc_count is {high_acc_count}")
-            if high_acc_count >= 3 and not self.potential_accident:
+            
+            if high_acc_count >= 2:
                 self.potential_accident = True
                 self.accident_timestamp = timestamp
                 return "POTENTIAL_ACCIDENT"
-                
+            
             return "NORMAL"
 
     def process_speed(self, current_speed, timestamp):
@@ -132,8 +134,7 @@ class CameraStream:
         self.gps_data = "Unknown"
         self.latitude = getattr(self.sensor_handler, 'latitude', 'N/A')
         self.longitude = getattr(self.sensor_handler, 'longitude', 'N/A')
-        self.address_no_accent = "N/A"
-        
+        self.address_no_accent = getattr(self.sensor_handler, 'address_no_accent', 'N/A')
         # Buffer setup
         self.fps = 20
         self.buffer_size = self.fps * 20  # 20 seconds buffer
@@ -150,8 +151,9 @@ class CameraStream:
         self.record_handler = record_handler
         self.current_velocity = 0
         self.use_simulated_velocity = True
-
-        self.record_handler = record_handler
+        
+        self.last_accident_time = None
+        self.accident_cooldown = 30  # 30 seconds cooldown between accident triggers
 
         # Base directory for saving images
         current_script_path = os.path.abspath(__file__)
@@ -159,7 +161,7 @@ class CameraStream:
         
         # Construct the save directory path dynamically
         self.save_dir = os.path.join(self.base_dir, "iot", "firebase", "image", "customer_Phuc")
-        self.thresold_speed = 50
+        self.thresold_speed = 40
         
         # Create directories if they don't exist
         os.makedirs(self.save_dir, exist_ok=True)
@@ -167,9 +169,9 @@ class CameraStream:
         print(f"Images will be saved to: {self.save_dir}")
         
         # Start threads for capturing video and simulating velocity
-        self.thread = threading.Thread(target=self._capture_loop)
-        self.thread.daemon = True
-        self.thread.start()
+        self.capture_thread = threading.Thread(target=self._capture_loop)
+        self.capture_thread.daemon = True
+        self.capture_thread.start()
         
         # Add recording queue
         self.recording_queue = deque()
@@ -179,9 +181,9 @@ class CameraStream:
         self.recording_start_time = None
         self.post_trigger_duration = 20  # seconds after trigger
         
-        self.thread = threading.Thread(target=self._recording_loop)
-        self.thread.daemon = True
-        self.thread.start()
+        self.recording_thread = threading.Thread(target=self._recording_loop)
+        self.recording_thread.daemon = True
+        self.recording_thread.start()
         
         # self.simulate_velocity_thread = threading.Thread(target=self._simulate_velocity)
         # self.simulate_velocity_thread.daemon = True
@@ -196,6 +198,7 @@ class CameraStream:
         self.fetch_gps_speed_thread.daemon = True
         self.fetch_gps_speed_thread.start()
         
+        sms_send = 0
         
         self.keyboard_thread = threading.Thread(target=self._keyboard_control)
         self.keyboard_thread.daemon = True
@@ -203,6 +206,20 @@ class CameraStream:
         
         self.start_cloudflared_tunnel()
         
+        # Add log file management settings
+        self.log_buffer = []
+        self.log_buffer_max_size = 10
+        self.log_buffer_lock = threading.Lock()
+        self.log_max_size_mb = 10  # 10MB maximum log file size
+        self.log_dir = os.path.join(self.base_dir, "logs")
+        self.accident_logs_dir = os.path.join(self.log_dir, "accident_logs")
+        os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.accident_logs_dir, exist_ok=True)
+        
+        # Initialize main log file
+        self.main_log_file = os.path.join(self.log_dir, "accelerometer_data.txt")
+        
+        atexit.register(self._cleanup)
         #Hoan change
         # Add new storage management variables
         self.storage_limit_mb = 500  # 500MB limit
@@ -283,10 +300,10 @@ class CameraStream:
         """Simulates velocity changes over time"""
         while self.stream_active and self.use_simulated_velocity:
             # Generate random velocity between 0 and 100
-            simulated_velocity = random.uniform(0, 100)
+            simulated_velocity = random.uniform(50, 100)
             self.update_velocity(simulated_velocity)
             print(f"Simulated velocity: {simulated_velocity:.2f}")
-            time.sleep(5)
+            time.sleep(2.5)
 
     def update_velocity(self, velocity):
         """Update current velocity and trigger image capture if needed"""
@@ -294,6 +311,13 @@ class CameraStream:
         print(f"Current velocity simulate is {velocity}")
         if self.current_velocity > self.thresold_speed:
             self.capture_and_save_image()
+            
+        payload = self.mqtt_client.create_payload_simulate_velocity(self.current_velocity)
+        ret = self.mqtt_client.publish(payload)
+        if ret.rc == paho.MQTT_ERR_SUCCESS:
+            print("Velocity simulate published successfully")
+        else:
+            print(f"Failed to publish velocity simulate, error code: {ret.rc}")
         
     def start_recording(self):
         """Trigger the recording process in RecordHandler."""
@@ -329,8 +353,8 @@ class CameraStream:
                     # Call the upload function
                     try:
                         # upload_images_and_generate_html()
-                        # print("Successfully uploaded to Firebase")
-                        print("Do nothing upload image")
+                        print("Successfully uploaded to Firebase")
+                        # print("Do nothing upload image")
                     except Exception as e:
                         print(f"Error uploading to Firebase: {str(e)}")
         except Exception as e:
@@ -357,40 +381,7 @@ class CameraStream:
                     if self.recording_triggered:
                         self.recording_queue.append(frame_with_timestamp)
             time.sleep(1/self.fps)
-
-    # def _recording_loop(self):
-    #     """Handle recording logic including pre-trigger and post-trigger frames."""
-    #     while self.stream_active:
-    #         if self.recording_triggered and not self.record_handler.is_recording():
-    #             print("Starting recording with pre-trigger buffer...")
-    #             self.recording_start_time = time.time()
-
-    #             # Write pre-trigger frames to the recording
-    #             pre_trigger_frames = list(self.frame_buffer)  # Get all frames from buffer (20 seconds)
-    #             if pre_trigger_frames:
-    #                 self.record_handler.start_recording(pre_trigger_frames[0])  # Start with the first frame
-    #                 for frame in pre_trigger_frames:
-    #                     self.record_handler.add_frame_to_record(frame)
-
-    #         # Write frames from the recording queue
-    #         while self.recording_queue and self.record_handler.is_recording():
-    #             frame = self.recording_queue.popleft()
-    #             self.record_handler.add_frame_to_record(frame)
-                
-    #             # Add a delay to maintain FPS consistency
-    #             time.sleep(1 / self.fps)  # Sleep to match frame rate
-
-    #         # Check if post-trigger duration has elapsed
-    #         if self.recording_triggered and self.recording_start_time:
-    #             elapsed_time = time.time() - self.recording_start_time
-    #             if elapsed_time >= 20.0:  # 20 seconds post-trigger
-    #                 print("Stopping recording after post-trigger duration...")
-    #                 self.recording_triggered = False
-    #                 self.recording_start_time = None
-    #                 self.record_handler.stop_recording()
-    #                 self.recording_queue.clear()
-
-    #         time.sleep(0.01)
+            
     def _recording_loop(self):
         """Handle recording logic including pre-trigger and post-trigger frames."""
         while self.stream_active:
@@ -439,74 +430,6 @@ class CameraStream:
                 self.recording_queue.clear()
 
             time.sleep(0.01)
-    # def add_timestamp_to_frame(self, frame):
-    #     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    #     h, w = frame.shape[:2]
-        
-    #     # Colors and fonts
-    #     TEXT_COLOR = (255, 255, 255)  # White
-    #     HIGHLIGHT_COLOR = (0, 255, 255)  # Yellow
-    #     WARNING_COLOR = (0, 0, 255)  # Red
-    #     FONT = cv2.FONT_HERSHEY_SIMPLEX
-    #     FONT_SCALE = 0.6
-    #     FONT_THICKNESS = 2
-
-    #     # Overlay background
-    #     overlay = frame.copy()
-    #     cv2.rectangle(overlay, (0, h - 100), (w, h), (0, 0, 0), -1)
-    #     alpha = 0.6
-    #     frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
-        
-    #     # Add device name
-    #     cv2.putText(frame, "DASHCAM PRO", (10, 30), 
-    #                 FONT, FONT_SCALE, HIGHLIGHT_COLOR, FONT_THICKNESS)
-        
-    #     # Add timestamp
-    #     cv2.putText(frame, current_time, (20, h - 70), 
-    #                 FONT, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
-        
-    #     # Add speed with dynamic color
-    #     speed_color = WARNING_COLOR if self.current_velocity > self.thresold_speed else TEXT_COLOR
-    #     cv2.putText(frame, f'Speed: {self.current_velocity:.1f} km/h', (20, h - 40), 
-    #                 FONT, FONT_SCALE, speed_color, FONT_THICKNESS)
-        
-    #     # Add GPS data if available
-    #     # gps_text = f"{self.address_no_accent}"
-    #     # gps_text = f"GPS: {self.latitude} N, {self.longitude} W"
-    #     # text_size = cv2.getTextSize(gps_text, FONT, FONT_SCALE, FONT_THICKNESS)[0]
-    #     # gps_x = (w - text_size[0]) // 2
-    #     # cv2.putText(frame, gps_text, (gps_x, h - 10), 
-    #     #             FONT, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
-        
-    #     # Add GPS address with smart truncation
-    #     if hasattr(self, 'address_no_accent') and self.address_no_accent:
-    #         max_width = w - 40  # Leave some padding
-    #         gps_text = self.address_no_accent
-    #         text_size = cv2.getTextSize(gps_text, FONT, FONT_SCALE, FONT_THICKNESS)[0]
-            
-    #         if text_size[0] > max_width:
-    #             # Calculate characters that can fit
-    #             char_width = text_size[0] / len(gps_text)
-    #             max_chars = int(max_width / char_width)
-    #             half_chars = max_chars // 2 - 2  # -2 for the "..."
-                
-    #             # Keep start and end of address
-    #             gps_text = f"{gps_text[:half_chars]}...{gps_text[-half_chars:]}"
-            
-    #         text_size = cv2.getTextSize(gps_text, FONT, FONT_SCALE, FONT_THICKNESS)[0]
-    #         gps_x = (w - text_size[0]) // 2
-    #         cv2.putText(frame, gps_text, (gps_x, h - 10), 
-    #                     FONT, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
-            
-    #         # Optional: Speed warning
-    #         if self.current_velocity > self.thresold_speed:
-    #             warning_text = "!SPEED WARNING!"
-    #             text_size = cv2.getTextSize(warning_text, FONT, FONT_SCALE + 0.2, FONT_THICKNESS)[0]
-    #             warning_x = (w - text_size[0]) // 2
-    #             cv2.putText(frame, warning_text, (warning_x, 50), 
-    #                         FONT, FONT_SCALE + 0.2, WARNING_COLOR, FONT_THICKNESS)
-
-    #         return frame
 
     def add_timestamp_to_frame(self, frame):
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -540,7 +463,8 @@ class CameraStream:
                     FONT, NORMAL_SCALE, TEXT_COLOR, THICKNESS)
 
         # Speed display (large, centered)
-        speed_text = f'{self.current_velocity:.0f}'
+        speed_text = f'{self.sensor_handler.velocity:.0f}'
+        # print(f"speed_text show in camera is {speed_text}")
         speed_color = WARNING_COLOR if self.current_velocity > self.thresold_speed else TEXT_COLOR
         
         speed_size = cv2.getTextSize(speed_text, FONT, SPEED_SCALE, THICKNESS)[0]
@@ -601,8 +525,9 @@ class CameraStream:
     def send_alert_email(self):
         """Prepare email content and return the message object"""
         msg = EmailMessage()
+        print("======CALLING EMAIL ALERT======")
         
-        self.system_id = "Mercedes C300"
+        self.system_id = self.mqtt_client.license_plates
         
         html_content = f"""
         <html>
@@ -617,7 +542,7 @@ class CameraStream:
                     <p><strong>Incident Details:</strong></p>
                     <ul>
                         <li>Time of Detection: {self.get_current_time()}</li>
-                        <li>System ID: {self.system_id}</li>
+                        <li>License Plates: {self.system_id}</li>
                         <li>Location: Latitude: {self.latitude}, Longitude: {self.longitude}</li>
                         <li>{self.address_no_accent}</li>
                         <li>Alert Level: HIGH PRIORITY</li>
@@ -646,7 +571,7 @@ class CameraStream:
         Emergency Response Required
         
         Time of Detection: {self.get_current_time()}
-        System ID: {self.system_id}
+        License Plates: {self.system_id}
         Location: Latitude: {self.latitude}, Longitude: {self.longitude}
         {self.address_no_accent}
         Alert Level: HIGH PRIORITY
@@ -671,12 +596,13 @@ class CameraStream:
         """Send SMS alert about accident"""
         try:
             # Your Twilio credentials
+            print("======CALLING SMS ALERT======")
             account_sid = ACCOUNT_SID
             auth_token = AUTH_TOKEN
             client = Client(account_sid, auth_token)
 
             message = client.messages.create(
-                body="\n‼️ URGENT ALERT ‼️\n➜ Accident reported!\n📍 Mercedes C300\n⚠️ Please check status immediately",
+                body=f"\n‼️ URGENT ALERT ‼️\n➜ Accident reported!\n📍 Plates: {self.mqtt_client.license_plates}\n⚠️ Please check status immediately",
                 from_='+12183949340',  
                 to='+84377300827'   
             )
@@ -708,68 +634,143 @@ class CameraStream:
         if not self.recording_triggered:
             self.recording_triggered = True
             print("Recording triggered with buffer...")
-            
-    # def fetch_accelerometer_data(self):
-    #     while self.stream_active:
-    #         try:
-    #             # with threading.Lock():
-    #             self.acclerometer_detect = self.sensor_handler.acc_detect_accident
-    #             # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
-                
-    #             timestamp = time.time()
-                
-    #             # Process acceleration data through accident detector
-    #             status = self.accident_detector.process_acceleration(self.acclerometer_detect, timestamp)
-                
-    #             if status == "POTENTIAL_ACCIDENT":
-    #                 print("Potential accident detected from acceleration!")
-    #                 # Don't trigger recording yet, wait for speed confirmation
-                        
-    #             # self.acclerometer_detect = self.sensor_handler.acc_detect_accident
-    #             # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
-    #         except Exception as e:
-    #             print(f"Error fetching acc data: {e}")  
-                  
-    #         threading.Event().wait(0.015)  # Short delay (~66Hz loop)
-    #         # threading.Event().wait(1)
 
     def fetch_accelerometer_data(self):
         # Determine the file path relative to the script location
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        log_file_path = os.path.join(script_dir, "accelerometer_data.txt")
-        
+        # script_dir = os.path.dirname(os.path.abspath(__file__))
+        # log_file_path = os.path.join(script_dir, "accelerometer_data.txt")
         while self.stream_active:
             try:
-                # Get acceleration data
-                self.acclerometer_detect = self.sensor_handler.acc_detect_accident
-                # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
-                
                 # Get the current timestamp
                 timestamp = time.time()
                 readable_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-                
+                # Get acceleration data
+                self.acclerometer_detect = self.sensor_handler.acc_detect_accident
+                # print(f"acclerometer_detect from camera_gstreamer.py is {self.acclerometer_detect}")
                 # Process acceleration data through the accident detector
+                
                 self.status = self.accident_detector.process_acceleration(self.acclerometer_detect, timestamp)
+        
+                # Create log entry
+                log_line = (
+                    f"{readable_time}: "
+                    f"Acceleration={self.acclerometer_detect:.2f}m/s^2, "
+                    f"Velocity={self.current_velocity:.1f}km/h, "
+                    f"Status={self.status}\n"
+                )
                 
-                # Write the acceleration data and status to the file
-                with open(log_file_path, "a") as log_file:
-                    log_file.write(
-                        f"{readable_time}: Acceleration={self.acclerometer_detect}, Status={self.status}\n"
-                    )
-                
-                # If a potential accident is detected
                 if self.status == "POTENTIAL_ACCIDENT":
-                    print("Potential accident detected from acceleration!")
-                    # Don't trigger recording yet, wait for speed confirmation
+                    # Check if we can trigger a new accident detection
+                    if (self.last_accident_time is None or 
+                        timestamp - self.last_accident_time >= self.accident_cooldown):
+                        # Set the timestamp BEFORE handling the accident
+                        self.last_accident_time = timestamp
                     
+                        print(f"\n=== ACCIDENT DETECTED ===")
+                        print(f"Time: {readable_time}")
+                        print(f"Impact: {self.acclerometer_detect:.2f}g")
+                        
+                        self._save_accident_data(timestamp)
+                        self.handle_accident()  
+
+                        # Reset potential_accident flag after cooldown
+                        def reset_potential_accident(): #just add here
+                            with self.accident_detector.lock: #just add here
+                                self.accident_detector.potential_accident = False #just add here
+                        threading.Timer(self.accident_cooldown, reset_potential_accident).start() #just add here
+                    
+                # Write to log file with size management      
+                self._write_to_log(log_line) 
+                  
             except Exception as e:
                 # Log errors to the file as well
-                with open(log_file_path, "a") as log_file:
-                    log_file.write(f"Error fetching acc data: {e}\n")
+                print(f"Error in accelerometer monitoring: {e}")
                     
             threading.Event().wait(0.1)  # Short delay (~66Hz loop)
-            # threading.Event().wait(1)
+            
+    def _write_to_log(self, log_line):
+        """Write to log file with buffering and size management"""
+        try:
+            with self.log_buffer_lock:
+                self.log_buffer.append(log_line)
+                
+                # Only write when buffer is full
+                if len(self.log_buffer) >= self.log_buffer_max_size:
+                    current_size = 0
+                    if os.path.exists(self.main_log_file):
+                        current_size = os.path.getsize(self.main_log_file) / (1024 * 1024)
+                    
+                    if current_size >= self.log_max_size_mb:
+                        with open(self.main_log_file, 'r') as file:
+                            lines = file.readlines()
+                        lines = lines[-int(len(lines) * 0.8):]
+                        with open(self.main_log_file, 'w') as file:
+                            file.writelines(lines)
+                    
+                    # Write buffered lines
+                    with open(self.main_log_file, 'a') as file:
+                        file.writelines(self.log_buffer)
+                    self.log_buffer.clear()
+                    
+        except Exception as e:
+            print(f"Error writing to log: {e}")
 
+    def _save_accident_data(self, accident_time):
+        """Save accident data including before and after the incident"""
+        try:
+            # Create accident log filename
+            timestamp = datetime.fromtimestamp(accident_time).strftime('%Y%m%d_%H%M%S')
+            accident_file = os.path.join(
+                self.accident_logs_dir, 
+                f"accident_log_{timestamp}.txt"
+            )
+            
+            # Copy current log content (pre-accident data)
+            if os.path.exists(self.main_log_file):
+                with open(self.main_log_file, 'r') as source:
+                    pre_accident_data = source.readlines()
+            
+            # Start thread to collect post-accident data
+            thread = threading.Thread(
+                target=self._collect_post_accident_data,
+                args=(accident_file, pre_accident_data, accident_time),
+                daemon=True
+            )
+            thread.start()
+            
+        except Exception as e:
+            print(f"Error saving accident data: {e}")
+
+    def _collect_post_accident_data(self, accident_file, pre_accident_data, accident_time):
+        try:
+            with open(accident_file, 'w') as file:
+                file.writelines(pre_accident_data)
+            
+            collection_start = time.time()
+            end_time = accident_time + 20
+            timeout = 25  # Maximum wait time
+            
+            while time.time() < min(end_time, collection_start + timeout):
+                time.sleep(0.1)
+                
+                try:
+                    with open(self.main_log_file, 'r') as main_file:
+                        current_data = main_file.readlines()
+                    
+                    if len(current_data) > len(pre_accident_data):
+                        new_lines = current_data[len(pre_accident_data):]
+                        with open(accident_file, 'a') as file:
+                            file.writelines(new_lines)
+                        pre_accident_data = current_data
+                except Exception as e:
+                    print(f"Error reading log during collection: {e}")
+                    time.sleep(0.5)
+            
+            print(f"Accident log saved: {accident_file}")
+            
+        except Exception as e:
+            print(f"Error collecting post-accident data: {e}")
+        
     def fetch_gps_speed_data(self):
         while self.stream_active:
             try:
@@ -785,6 +786,7 @@ class CameraStream:
                 
                 # Update current velocity
                 self.current_velocity = self.sensor_handler.velocity
+                print(f"self.current_velocity at camera_gstreamer is {self.current_velocity}")
                 if self.current_velocity > self.thresold_speed:
                     self.capture_and_save_image()
                 
@@ -796,7 +798,7 @@ class CameraStream:
                     self.handle_accident()
             except Exception as e:
                 print(f"Error fetching gps & speed data: {e}")  
-                  
+                
             threading.Event().wait(1)
     
     def handle_accident(self):
@@ -805,12 +807,13 @@ class CameraStream:
             # Trigger recording
             self.trigger_recording()
             
-            sms_thread = threading.Thread(
-            target=self.send_sms_alert,
-            daemon=True
-            )
-            sms_thread.start()
-            sms_thread.join(timeout=10)  # Wait up to 10 seconds for SMS to be sent
+            
+            # sms_thread = threading.Thread(
+            # target=self.send_sms_alert,
+            # daemon=True
+            # )
+            # sms_thread.start()
+            # sms_thread.join(timeout=10)  # Wait up to 10 seconds for SMS to be sent
             
             # Send email alert
             msg = self.send_alert_email()
@@ -827,11 +830,14 @@ class CameraStream:
             ret = self.mqtt_client.publish(payload)
             
             if ret.rc == paho.MQTT_ERR_SUCCESS:
-                print("Accident signal published successfully")
+                print(f"Accident signal is {self.accident_signal} published successfully")
                 # Reset accident signal after short delay
-                threading.Timer(2.0, self.reset_accident_signal).start()
+                threading.Timer(10.0, self.reset_accident_signal).start()
             else:
                 print(f"Failed to publish accident signal, error code: {ret.rc}")
+            
+            # Reset the potential_accident flag after handling
+            # self.potential_accident = False #just add here
                 
         except Exception as e:
             print(f"Error handling accident: {e}")
@@ -852,27 +858,6 @@ class CameraStream:
                 print("Keyboard 'q' pressed")
                 # self.trigger_recording()
                 self.handle_accident()
-                # Prepare email message
-                # msg = self.send_alert_email()
-                # # Start email sending in a separate thread
-                # email_thread = threading.Thread(
-                #     target=self.send_email_thread,
-                #     args=(msg,),
-                #     daemon=True
-                # )
-                # email_thread.start()
-                
-                # self.accident_signal = 1
-                # payload = self.mqtt_client.create_payload_accident_signal(self.accident_signal)
-                # ret = self.mqtt_client.publish(payload)
-                # if ret.rc == paho.MQTT_ERR_SUCCESS:
-                #     print(f"Accident signal published successfully. Its value is {self.accident_signal}")
-                #     self.accident_signal = 0
-                #     payload = self.mqtt_client.create_payload_accident_signal(self.accident_signal) # send 0 to turn off accident signal
-                #     ret = self.mqtt_client.publish(payload)
-                #     print(f"Accident signal down published successfully. Its value is {self.accident_signal}")
-                # else:
-                #     print(f"Failed to publish accident signal, error code: {ret.rc}")
                 
             elif key == 'exit':
                 print("Exiting keyboard control")
@@ -943,6 +928,29 @@ class CameraStream:
         if not server_running:
             server_running = True
             app.run(host="0.0.0.0", port=5000, threaded=True)
+            
+    def _cleanup(self):
+        """Clean up resources on program exit"""
+        try:
+            # Flush remaining log buffer
+            with self.log_buffer_lock:
+                if self.log_buffer:
+                    with open(self.main_log_file, 'a') as file:
+                        file.writelines(self.log_buffer)
+            
+            # Stop all threads
+            self.stream_active = False
+            
+            # Release camera
+            if self.cap is not None:
+                self.cap.release()
+                
+            # Close video writer
+            if self.current_video_writer is not None:
+                self.current_video_writer.release()
+                
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
 
 def initialize_camera(mqtt_client, record_handler, sensor_handler):
     global camera
