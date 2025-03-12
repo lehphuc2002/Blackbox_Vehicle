@@ -11,6 +11,7 @@ This project focuses on the development of a **Black Box System** for vehicles, 
 - **Velocity Sensor** to measure the vehicle’s speed.
 - **Alcohol Sensor** to detect alcohol levels from the driver.
 - **Accelerometer** to track vehicle motion and detect accidents.
+- **Camera** continuously records the journey along with coordinates and saves the video to a memory card when there is a possibility of an accident.
 - **Accident Detection**: Automatic detection of abnormal events such as collisions.
 - **GPS 4G Module (EM06)** for real-time location tracking.
 - **Data Push to Firebase**: All data is stored securely in the cloud for further analysis.
