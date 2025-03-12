@@ -1,4 +1,4 @@
-# Black Box Car Vehicle - Thesis Project
+# Black Box Car Vehicle
 ## Overview
 
 This project focuses on the development of a **Black Box System** for vehicles, which captures critical data during vehicle operation. Using a Raspberry Pi 4, multiple sensors, and cloud integration, the system continuously monitors and records data such as speed, temperature, acceleration, alcohol levels, and RFID-based driver identification. In the event of an accident, the system automatically detects the event and pushes data to Firebase and ThingsBoard via MQTT for real-time tracking and analysis.
