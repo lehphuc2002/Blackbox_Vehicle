@@ -17,42 +17,25 @@ This project focuses on the development of a **Black Box System** for vehicles, 
 - **Data Push to Firebase**: All data is stored securely in the cloud for further analysis.
 - **MQTT Protocol** to send data to a **ThingsBoard Dashboard** for real-time monitoring.
 
-## System Components
-
-- **Raspberry Pi 4**: Central controller for the system.
-- **RFID Module**: Used for driver identification and recording.
-- **Sensors**:
-  - **Temperature Sensor**
-  - **Velocity Sensor**
-  - **Alcohol Sensor**
-  - **Accelerometer**
-- **GPS 4G Module (EM06)**: For real-time GPS tracking.
-- **Firebase**: Cloud storage for sensor data.
-- **ThingsBoard**: IoT dashboard for live monitoring via MQTT.
-
-## Usage
-
-The system starts collecting data from all connected sensors (RFID, temperature, velocity, alcohol, and accelerometer). In case of an accident, the accelerometer detects the event, and the data is sent to Firebase and ThingsBoard via MQTT for real-time monitoring and analysis.
-
 ## Data Flow
 
 1. **Sensor Data Collection**: Data is continuously collected from sensors and processed by the Raspberry Pi.
-2. **RFID Identification**: The driver is identified using RFID, and their information is logged.
+2. **RFID Identification**: The driver is identified using RFID, their information and time driving track is logged.
 3. **Accident Detection**: In case of sudden deceleration or impact, the accelerometer triggers an accident detection event.
-4. **Data Upload**: All data (sensor readings, RFID info, GPS coordinates) is uploaded to Firebase and pushed to the ThingsBoard dashboard via MQTT.
+4. **Data Upload**: All data (sensor readings, RFID info, GPS coordinates, etc.) is uploaded to Firebase and pushed to the ThingsBoard dashboard via MQTT.
 5. **Real-time Monitoring**: The ThingsBoard dashboard provides live updates on the vehicle's status.
+6. **The map** of the route the vehicle has traveled is saved. When exceeding speed, image will be taken and push to Firebase to store the evidence.
 
 ## Dashboard - ThingsBoard
 
 The data is visualized in real-time on a custom **ThingsBoard** dashboard, where you can track:
 - Driver information (from RFID)
-- Speed, temperature, and alcohol levels
-- GPS location
-- Accident alerts
+- Information of vehicle like: speed, temperature, alcohol levels, etc.
+- GPS location, map running.
+- Accident alerts.
 
 ## Technologies
 
-- **Hardware**: Raspberry Pi 4, RFID module, temperature sensor, velocity sensor, alcohol sensor, accelerometer, GPS 4G module (EM06)
 - **Cloud Services**: Firebase for data storage, ThingsBoard for dashboard visualization
 - **Protocols**: MQTT for data transfer
 - **Programming Language**: Python
