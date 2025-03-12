@@ -6,7 +6,7 @@ This project focuses on the development of a **Black Box System** for vehicles, 
 ## Features
 
 - **Raspberry Pi 4** as the core processing unit.
-- **RFID Module** for driver identification and authentication.
+- **RFID Module** for driver identification and authentication. Also, tracking time driving of the driver and notification. RFID driver's license card designed according to Vietnamese law.
 - **Temperature Sensor** to monitor environmental conditions inside or outside the vehicle.
 - **Velocity Sensor** to measure the vehicle’s speed.
 - **Alcohol Sensor** to detect alcohol levels from the driver.
